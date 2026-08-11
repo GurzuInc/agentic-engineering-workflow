@@ -241,7 +241,9 @@ def check_repository(repo: Path) -> list[str]:
             issues.append(f"deterministic render drift: {raw}")
     tracked_managed = set(lock["files"])
     try:
-        for extra in sorted(_enumerate_managed_files(repo) - tracked_managed):
+        for extra in sorted(
+            _enumerate_managed_files(repo, set(lock["adapters"])) - tracked_managed
+        ):
             issues.append(f"untracked file in managed namespace: {extra}")
     except PolicyError as exc:
         issues.append(str(exc))
@@ -250,7 +252,9 @@ def check_repository(repo: Path) -> list[str]:
 
 def render_current(repo: Path) -> list[str]:
     state = _load_verified_state(repo)
-    extras = sorted(_enumerate_managed_files(repo) - set(state.lock["files"]))
+    extras = sorted(
+        _enumerate_managed_files(repo, set(state.lock["adapters"])) - set(state.lock["files"])
+    )
     if extras:
         raise PolicyError(f"unexpected file in managed namespace: {', '.join(extras)}")
     changes: dict[str, PreparedFile] = {}
@@ -421,6 +425,13 @@ def _validate_prepared(prepared: dict[str, PreparedFile], adapters: tuple[str, .
                 ".agents/skills/project-engineering-workflow/agents/openai.yaml",
             }
         )
+    if "claude" in adapters:
+        required.update(
+            {
+                ".claude/settings.json",
+                ".claude/skills/project-engineering-workflow/SKILL.md",
+            }
+        )
     missing = required - prepared.keys()
     if missing:
         raise PolicyError(f"render is missing required outputs: {', '.join(sorted(missing))}")
@@ -463,14 +474,21 @@ def _read_existing_regular_file(repo: Path, relative: PurePosixPath) -> bytes | 
         raise
 
 
-def _enumerate_managed_files(repo: Path) -> set[str]:
+def _enumerate_managed_files(repo: Path, adapters: set[str]) -> set[str]:
     found: set[str] = set()
     roots = [
         PurePosixPath(".engineering-policy/spec"),
         PurePosixPath(".engineering-policy/bin"),
-        PurePosixPath(".codex"),
-        PurePosixPath(".agents/skills/project-engineering-workflow"),
     ]
+    if "codex" in adapters:
+        roots.extend(
+            [
+                PurePosixPath(".codex"),
+                PurePosixPath(".agents/skills/project-engineering-workflow"),
+            ]
+        )
+    if "claude" in adapters:
+        roots.append(PurePosixPath(".claude"))
     for relative_root in roots:
         root = _path_without_symlinks(repo, relative_root, "managed namespace")
         if not root.exists():

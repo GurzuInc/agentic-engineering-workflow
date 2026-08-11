@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     init = subparsers.add_parser("init", help="enroll a clean Git repository")
     init.add_argument("--repo", type=Path, required=True)
     init.add_argument("--version", required=True)
-    init.add_argument("--adapters", required=True, help="comma-separated: codex")
+    init.add_argument("--adapters", required=True, help="comma-separated: codex,claude")
     init.add_argument("--guidance-mode", required=True, choices=("preserve",))
     init.add_argument("--sync-mode", required=True, choices=("manual",))
     init.add_argument("--codeowners-mode", required=True, choices=("unmanaged",))

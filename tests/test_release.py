@@ -79,7 +79,7 @@ def test_public_asset_download_is_tokenless(
     destination = tmp_path / "asset"
     _download_public_asset(
         "https://github.com/GurzuInc/agentic-engineering-workflow/releases/download/"
-        "v1.0.0-rc.2/policyctl.pyz",
+        "v1.0.0-rc.3/policyctl.pyz",
         destination,
     )
     assert destination.read_bytes() == b"asset"
@@ -94,8 +94,8 @@ def test_public_asset_download_is_tokenless(
         [],
         {},
         {"tag_name": 1, "draft": False, "prerelease": True},
-        {"tag_name": "v1.0.0-rc.2", "draft": "false", "prerelease": True},
-        {"tag_name": "v1.0.0-rc.2", "draft": False, "prerelease": 1},
+        {"tag_name": "v1.0.0-rc.3", "draft": "false", "prerelease": True},
+        {"tag_name": "v1.0.0-rc.3", "draft": False, "prerelease": 1},
     ],
 )
 def test_release_summary_rejects_malformed_metadata(metadata: object) -> None:
@@ -119,10 +119,10 @@ def test_required_release_assets_are_well_formed_and_unique(assets: object) -> N
     with pytest.raises(PolicyError, match="asset|unique"):
         _required_assets(
             {"assets": assets},
-            "v1.0.0-rc.2",
+            "v1.0.0-rc.3",
             {
                 "policyctl.pyz",
-                "engineering-policy-1.0.0-rc.2.zip",
+                "engineering-policy-1.0.0-rc.3.zip",
                 "release-manifest.json",
                 "SHA256SUMS",
             },
@@ -132,7 +132,7 @@ def test_required_release_assets_are_well_formed_and_unique(assets: object) -> N
 def test_required_release_assets_reject_an_unexpected_fifth_asset() -> None:
     required = {
         "policyctl.pyz",
-        "engineering-policy-1.0.0-rc.2.zip",
+        "engineering-policy-1.0.0-rc.3.zip",
         "release-manifest.json",
         "SHA256SUMS",
     }
@@ -142,13 +142,13 @@ def test_required_release_assets_reject_an_unexpected_fifth_asset() -> None:
             "name": name,
             "browser_download_url": (
                 "https://github.com/GurzuInc/agentic-engineering-workflow/releases/download/"
-                f"v1.0.0-rc.2/{name}"
+                f"v1.0.0-rc.3/{name}"
             ),
         }
         for name in names
     ]
     with pytest.raises(PolicyError, match="exactly match"):
-        _required_assets({"assets": assets}, "v1.0.0-rc.2", required)
+        _required_assets({"assets": assets}, "v1.0.0-rc.3", required)
 
 
 def test_resolve_latest_rejects_malformed_release_entries(
@@ -159,7 +159,7 @@ def test_resolve_latest_rejects_malformed_release_entries(
         ReleaseClient().resolve_latest(
             major=1,
             channel="prerelease",
-            current=Version.parse("1.0.0-rc.2"),
+            current=Version.parse("1.0.0-rc.3"),
         )
 
 
@@ -205,7 +205,7 @@ def test_asset_timeout_preserves_existing_destination(
     with pytest.raises(PolicyError, match="failed to download public release asset"):
         _download_public_asset(
             "https://github.com/GurzuInc/agentic-engineering-workflow/releases/download/"
-            "v1.0.0-rc.2/policyctl.pyz",
+            "v1.0.0-rc.3/policyctl.pyz",
             destination,
         )
     assert destination.read_bytes() == b"original"
@@ -240,7 +240,7 @@ def test_asset_total_deadline_preserves_existing_destination(
     with pytest.raises(PolicyError, match="exceeded the total download deadline"):
         _download_public_asset(
             "https://github.com/GurzuInc/agentic-engineering-workflow/releases/download/"
-            "v1.0.0-rc.2/policyctl.pyz",
+            "v1.0.0-rc.3/policyctl.pyz",
             destination,
         )
 
@@ -277,10 +277,10 @@ def test_metadata_response_size_is_bounded(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def _release_artifacts(tmp_path: Path) -> tuple[Version, str, Path, Path, Path, Path, str]:
-    version = Version.parse("1.0.0-rc.2")
-    tag = "v1.0.0-rc.2"
+    version = Version.parse("1.0.0-rc.3")
+    tag = "v1.0.0-rc.3"
     commit = "0123456789abcdef0123456789abcdef01234567"
-    bundle = tmp_path / "engineering-policy-1.0.0-rc.2.zip"
+    bundle = tmp_path / "engineering-policy-1.0.0-rc.3.zip"
     pyz = tmp_path / "policyctl.pyz"
     release_manifest = tmp_path / "release-manifest.json"
     checksums = tmp_path / "SHA256SUMS"
@@ -299,7 +299,8 @@ def _release_artifacts(tmp_path: Path) -> tuple[Version, str, Path, Path, Path, 
         "channel": "prerelease",
         "source_commit": commit,
         "asset_digests": digests,
-        "supported_adapters": ["codex"],
+        "supported_adapters": ["codex", "claude"],
+        "adapter_validation": {"codex": "validated", "claude": "pending"},
         "supported_python": ["3.11", "3.12", "3.13", "3.14"],
         "recovery": {
             "original_source_commit": "eb79ceb19b1e82ac5f504170ab56abc20e4f484a",
@@ -311,6 +312,7 @@ def _release_artifacts(tmp_path: Path) -> tuple[Version, str, Path, Path, Path, 
                 "7c2e39091d855a66e8f30fde232a447e916b1b04a8d5ad826fd6a7dd052f3376"
             ),
             "unpublished_rc1_was_tagged": False,
+            "failed_unpublished_candidates": ["v1.0.0-rc.2"],
         },
     }
     release_manifest.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
@@ -325,6 +327,16 @@ def _release_artifacts(tmp_path: Path) -> tuple[Version, str, Path, Path, Path, 
     return version, tag, bundle, pyz, release_manifest, checksums, commit
 
 
+def _refresh_release_checksums(bundle: Path, pyz: Path, manifest: Path, checksums: Path) -> None:
+    checksums.write_text(
+        "".join(
+            f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+            for path in sorted((bundle, pyz, manifest), key=lambda item: item.name)
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_release_artifact_contract_binds_checksums_manifest_and_annotated_tag(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -333,6 +345,41 @@ def test_release_artifact_contract_binds_checksums_manifest_and_annotated_tag(
         "engineering_policy.release._resolve_annotated_tag_commit", lambda _tag: artifacts[-1]
     )
     _validate_release_artifacts(*artifacts[:-1])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "remove-supported-adapters",
+        "change-supported-adapters",
+        "remove-adapter-validation",
+        "change-adapter-validation",
+        "change-failed-candidate-history",
+    ],
+)
+def test_release_artifact_contract_rejects_adapter_and_candidate_history_drift(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mutation: str
+) -> None:
+    artifacts = _release_artifacts(tmp_path)
+    _version, _tag, bundle, pyz, manifest_path, checksums, commit = artifacts
+    manifest = json.loads(manifest_path.read_text())
+    if mutation == "remove-supported-adapters":
+        del manifest["supported_adapters"]
+    elif mutation == "change-supported-adapters":
+        manifest["supported_adapters"] = ["codex"]
+    elif mutation == "remove-adapter-validation":
+        del manifest["adapter_validation"]
+    elif mutation == "change-adapter-validation":
+        manifest["adapter_validation"]["claude"] = "validated"
+    else:
+        manifest["recovery"]["failed_unpublished_candidates"] = []
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    _refresh_release_checksums(bundle, pyz, manifest_path, checksums)
+    monkeypatch.setattr(
+        "engineering_policy.release._resolve_annotated_tag_commit", lambda _tag: commit
+    )
+    with pytest.raises(PolicyError, match="unknown or missing fields|contract does not match"):
+        _validate_release_artifacts(*artifacts[:-1])
 
 
 def test_release_artifact_contract_rejects_duplicate_checksum(
@@ -367,7 +414,7 @@ def test_annotated_tag_resolution_requires_tag_object(
         lambda _url: {"object": {"type": "commit", "sha": "a" * 40}},
     )
     with pytest.raises(PolicyError, match="must be annotated"):
-        _resolve_annotated_tag_commit("v1.0.0-rc.2")
+        _resolve_annotated_tag_commit("v1.0.0-rc.3")
 
 
 def test_annotated_tag_resolution_returns_exact_commit(
@@ -381,18 +428,18 @@ def test_annotated_tag_resolution_returns_exact_commit(
         return {"object": {"type": "commit", "sha": commit}}
 
     monkeypatch.setattr("engineering_policy.release._request_json", metadata)
-    assert _resolve_annotated_tag_commit("v1.0.0-rc.2") == commit
+    assert _resolve_annotated_tag_commit("v1.0.0-rc.3") == commit
 
 
 def _mock_release_downloads(
     monkeypatch: pytest.MonkeyPatch,
     assets: dict[str, Path],
     *,
-    tag_name: str = "v1.0.0-rc.2",
+    tag_name: str = "v1.0.0-rc.3",
     draft: bool = False,
     prerelease: bool = True,
 ) -> list[tuple[str, ...]]:
-    base = "https://github.com/GurzuInc/agentic-engineering-workflow/releases/download/v1.0.0-rc.2/"
+    base = "https://github.com/GurzuInc/agentic-engineering-workflow/releases/download/v1.0.0-rc.3/"
     release = {
         "tag_name": tag_name,
         "draft": draft,
@@ -422,17 +469,17 @@ def test_verified_bundle_composes_release_checks_before_yielding(
 ) -> None:
     assets = {path.name: path for path in release_bundle.parent.iterdir()}
     verified = _mock_release_downloads(monkeypatch, assets)
-    with ReleaseClient().verified_bundle(Version.parse("1.0.0-rc.2")) as bundle:
-        assert bundle.version == "1.0.0-rc.2"
+    with ReleaseClient().verified_bundle(Version.parse("1.0.0-rc.3")) as bundle:
+        assert bundle.version == "1.0.0-rc.3"
     assert len(verified) == 1
-    assert verified[0][0] == "v1.0.0-rc.2"
+    assert verified[0][0] == "v1.0.0-rc.3"
     assert set(verified[0][1:]) == set(assets)
 
 
 @pytest.mark.parametrize(
     ("metadata", "message"),
     [
-        ({"tag_name": "v1.0.0-rc.3"}, "identity mismatch"),
+        ({"tag_name": "v1.0.0-rc.4"}, "identity mismatch"),
         ({"draft": True}, "still a draft"),
         ({"prerelease": False}, "channel mismatch"),
     ],
@@ -446,7 +493,7 @@ def test_verified_bundle_rejects_release_identity_and_state_before_download(
     assets = {path.name: path for path in release_bundle.parent.iterdir()}
     _mock_release_downloads(monkeypatch, assets, **metadata)
     with pytest.raises(PolicyError, match=message):
-        with ReleaseClient().verified_bundle(Version.parse("1.0.0-rc.2")):
+        with ReleaseClient().verified_bundle(Version.parse("1.0.0-rc.3")):
             pass
 
 
@@ -475,5 +522,5 @@ def test_verified_bundle_rejects_standalone_updater_that_differs_from_bundle(
     )
     _mock_release_downloads(monkeypatch, assets)
     with pytest.raises(PolicyError, match="standalone updater differs"):
-        with ReleaseClient().verified_bundle(Version.parse("1.0.0-rc.2")):
+        with ReleaseClient().verified_bundle(Version.parse("1.0.0-rc.3")):
             pass

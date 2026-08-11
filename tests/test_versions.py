@@ -56,7 +56,7 @@ def test_explicit_rollback_is_supported(
     newer = Bundle.load(
         mutate_bundle(
             release_bundle,
-            version="1.0.0-rc.3",
+            version="1.0.0-rc.4",
             channel="prerelease",
         )
     )
@@ -64,7 +64,7 @@ def test_explicit_rollback_is_supported(
     commit_all(git_repo)
     older = Bundle.load(release_bundle)
     apply_update(git_repo, older, explicit_version=True)
-    assert load_lock(git_repo)["version"] == "1.0.0-rc.2"
+    assert load_lock(git_repo)["version"] == "1.0.0-rc.3"
 
 
 def test_stable_consumer_rejects_prerelease_update(

@@ -87,7 +87,30 @@ def test_release_permissions_and_draft_first_contract(project_root: Path) -> Non
         assert asset in text
     assert "--draft" in text
     assert "--draft=false" in text
-    assert "immutable-releases" in text
+    assert "IMMUTABLE_RELEASES_ENABLED" in text
+
+
+def test_release_requires_exact_rc3_and_immutable_preflight_before_draft(
+    project_root: Path,
+) -> None:
+    workflow = yaml.safe_load((project_root / ".github/workflows/release.yml").read_text())
+    steps = workflow["jobs"]["publish"]["steps"]
+    by_name = {step.get("name"): step for step in steps if step.get("name")}
+    names = [step.get("name", "") for step in steps]
+    assert (
+        names.index("Require stable promotion evidence")
+        < names.index("Require recorded immutable-release preflight")
+        < names.index("Create draft and upload every asset")
+    )
+    stable = by_name["Require stable promotion evidence"]
+    assert stable["if"] == "${{ !contains(github.ref_name, '-') }}"
+    assert stable["run"] == ('test "$RC_SMOKE_RESULT" = "v1.0.0-rc.3:pass:$GITHUB_SHA"')
+    preflight = by_name["Require recorded immutable-release preflight"]
+    assert preflight["env"] == {
+        "IMMUTABLE_RELEASES_ENABLED": "${{ vars.IMMUTABLE_RELEASES_ENABLED }}"
+    }
+    assert preflight["run"] == 'test "$IMMUTABLE_RELEASES_ENABLED" = true'
+    assert "gh api" not in preflight["run"]
 
 
 def test_ci_and_release_require_two_identical_builds(project_root: Path) -> None:
@@ -106,17 +129,21 @@ def test_ci_requires_cross_python_release_identity(project_root: Path) -> None:
         assert f"deterministic-python-{version}" in text
 
 
-def test_bundle_contract_is_codex_only(project_root: Path, release_bundle: Path) -> None:
+def test_bundle_contract_contains_codex_and_claude_adapters(
+    project_root: Path, release_bundle: Path
+) -> None:
     bundle = Bundle.load(release_bundle)
     validate_policy(bundle.files)
     validate_migrations(bundle.files)
     validate_adapters(bundle.files)
     names = set(bundle.files)
     assert any(name.startswith("adapters/codex/") for name in names)
-    assert not any("claude" in name.casefold() for name in names)
+    assert any(name.startswith("adapters/claude/") for name in names)
     assert not any("codeowners" in name.casefold() for name in names)
     assert not any(".github/workflows" in name.casefold() for name in names)
     assert "adapters/codex/.agents/skills/project-engineering-workflow/SKILL.md" in names
+    assert "adapters/claude/.claude/skills/project-engineering-workflow/SKILL.md" in names
+    assert "adapters/claude/CLAUDE.md" not in names
 
 
 def test_release_build_is_deterministic(project_root: Path, tmp_path: Path) -> None:
@@ -130,7 +157,7 @@ def test_release_build_is_deterministic(project_root: Path, tmp_path: Path) -> N
                 "--output-dir",
                 str(output),
                 "--version",
-                "1.0.0-rc.2",
+                "1.0.0-rc.3",
                 "--source-commit",
                 commit,
             ],
@@ -140,7 +167,7 @@ def test_release_build_is_deterministic(project_root: Path, tmp_path: Path) -> N
             text=True,
         )
     names = {
-        "engineering-policy-1.0.0-rc.2.zip",
+        "engineering-policy-1.0.0-rc.3.zip",
         "policyctl.pyz",
         "release-manifest.json",
         "SHA256SUMS",
@@ -153,29 +180,31 @@ def test_release_build_is_deterministic(project_root: Path, tmp_path: Path) -> N
 def test_release_manifest_and_checksums_are_exact(release_bundle: Path, project_root: Path) -> None:
     output = release_bundle.parent
     manifest = json.loads((output / "release-manifest.json").read_text())
-    assert manifest["version"] == "1.0.0-rc.2"
-    assert manifest["tag"] == "v1.0.0-rc.2"
+    assert manifest["version"] == "1.0.0-rc.3"
+    assert manifest["tag"] == "v1.0.0-rc.3"
     assert manifest["source_commit"] == "0123456789abcdef0123456789abcdef01234567"
-    assert manifest["supported_adapters"] == ["codex"]
+    assert manifest["supported_adapters"] == ["codex", "claude"]
+    assert manifest["adapter_validation"] == {"codex": "validated", "claude": "pending"}
     assert manifest["supported_python"] == ["3.11", "3.12", "3.13", "3.14"]
     assert manifest["recovery"]["original_source_commit"] == (
         "eb79ceb19b1e82ac5f504170ab56abc20e4f484a"
     )
     assert manifest["recovery"]["original_source_is_ancestor"] is False
     assert manifest["recovery"]["unpublished_rc1_was_tagged"] is False
+    assert manifest["recovery"]["failed_unpublished_candidates"] == ["v1.0.0-rc.2"]
     expected = {}
     for line in (output / "SHA256SUMS").read_text().splitlines():
         digest, name = line.split("  ", 1)
         expected[name] = digest
     assert set(expected) == {
-        "engineering-policy-1.0.0-rc.2.zip",
+        "engineering-policy-1.0.0-rc.3.zip",
         "policyctl.pyz",
         "release-manifest.json",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((output / name).read_bytes()).hexdigest() == digest
     assert manifest["asset_digests"] == {
-        "engineering-policy-1.0.0-rc.2.zip": expected["engineering-policy-1.0.0-rc.2.zip"],
+        "engineering-policy-1.0.0-rc.3.zip": expected["engineering-policy-1.0.0-rc.3.zip"],
         "policyctl.pyz": expected["policyctl.pyz"],
     }
     assert (project_root / "RECOVERY.md").is_file()

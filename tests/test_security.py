@@ -126,6 +126,60 @@ def test_adapter_cannot_gain_implicit_invocation_or_tools(
         Bundle.load(malicious)
 
 
+def test_claude_adapter_cannot_enable_implicit_model_invocation(
+    release_bundle: Path, mutate_bundle
+) -> None:
+    skill = (
+        b"---\n"
+        b"name: project-engineering-workflow\n"
+        b"description: workflow\n"
+        b"disable-model-invocation: false\n"
+        b"---\n"
+    )
+    malicious = mutate_bundle(
+        release_bundle,
+        replacements={
+            "adapters/claude/.claude/skills/project-engineering-workflow/SKILL.md": skill
+        },
+    )
+    with pytest.raises(PolicyError, match="disable implicit"):
+        Bundle.load(malicious)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("tools", "Read, Grep, Glob, Write"),
+        ("model", "claude-opus"),
+        ("permissionMode", "acceptEdits"),
+    ],
+)
+def test_claude_reviewer_must_remain_read_only(
+    release_bundle: Path, mutate_bundle, field: str, value: str
+) -> None:
+    settings = {
+        "tools": "Read, Grep, Glob",
+        "model": "inherit",
+        "permissionMode": "plan",
+    }
+    settings[field] = value
+    reviewer = (
+        "---\n"
+        "name: project-contract-reviewer\n"
+        "description: review\n"
+        f"tools: {settings['tools']}\n"
+        f"model: {settings['model']}\n"
+        f"permissionMode: {settings['permissionMode']}\n"
+        "---\n"
+    ).encode()
+    malicious = mutate_bundle(
+        release_bundle,
+        replacements={"adapters/claude/.claude/agents/project-contract-reviewer.md": reviewer},
+    )
+    with pytest.raises(PolicyError, match="not read-only"):
+        Bundle.load(malicious)
+
+
 @pytest.mark.parametrize(
     ("updates", "message"),
     [
@@ -146,7 +200,7 @@ def test_manifest_identity_and_protocol_fail_closed(
 def test_manifest_and_policy_versions_must_agree(release_bundle: Path, mutate_bundle) -> None:
     malicious = mutate_bundle(
         release_bundle,
-        manifest_updates={"version": "1.0.0-rc.3"},
+        manifest_updates={"version": "1.0.0-rc.4"},
     )
     with pytest.raises(PolicyError, match="policy version differs"):
         Bundle.load(malicious)
@@ -196,7 +250,7 @@ def test_invalid_release_attestation_blocks_before_use(
         lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 1, "", "invalid attestation"),
     )
     with pytest.raises(PolicyError, match="invalid attestation"):
-        _verify_release("v1.0.0-rc.2", *artifacts)
+        _verify_release("v1.0.0-rc.3", *artifacts)
 
 
 def test_release_verification_uses_all_provenance_gates_and_strips_tokens(
@@ -218,12 +272,12 @@ def test_release_verification_uses_all_provenance_gates_and_strips_tokens(
     monkeypatch.setenv("GH_ENTERPRISE_TOKEN", "enterprise-write-capable")
     monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "enterprise-actions-token")
     monkeypatch.setenv("GH_CONFIG_DIR", "/ambient/gh-config")
-    _verify_release("v1.0.0-rc.2", *artifacts)
+    _verify_release("v1.0.0-rc.3", *artifacts)
     commands = [" ".join(call[0]) for call in calls]
-    assert any("release verify v1.0.0-rc.2" in command for command in commands)
+    assert any("release verify v1.0.0-rc.3" in command for command in commands)
     assert sum("release verify-asset" in command for command in commands) == 4
     assert sum("attestation verify" in command for command in commands) == 4
-    assert sum("--source-ref refs/tags/v1.0.0-rc.2" in command for command in commands) == 4
+    assert sum("--source-ref refs/tags/v1.0.0-rc.3" in command for command in commands) == 4
     assert all("GH_TOKEN" not in environment for _command, environment in calls)
     assert all("GITHUB_TOKEN" not in environment for _command, environment in calls)
     assert all("GH_ENTERPRISE_TOKEN" not in environment for _command, environment in calls)
@@ -250,7 +304,7 @@ def test_release_verification_accepts_only_explicit_read_token(
     monkeypatch.setattr("engineering_policy.release.subprocess.run", record)
     monkeypatch.setenv("GH_TOKEN", "write-token")
     monkeypatch.setenv("POLICYCTL_GITHUB_READ_TOKEN", "read-token")
-    _verify_release("v1.0.0-rc.2", *artifacts)
+    _verify_release("v1.0.0-rc.3", *artifacts)
     assert all(environment["GH_TOKEN"] == "read-token" for environment in environments)  # noqa: S105
     assert all("POLICYCTL_GITHUB_READ_TOKEN" not in environment for environment in environments)
 
@@ -268,7 +322,7 @@ def test_release_verification_timeout_fails_closed(
 
     monkeypatch.setattr("engineering_policy.release.subprocess.run", time_out)
     with pytest.raises(PolicyError, match="verification timed out"):
-        _verify_release("v1.0.0-rc.2", *artifacts)
+        _verify_release("v1.0.0-rc.3", *artifacts)
 
 
 def test_candidate_updater_is_copied_but_never_executed(
@@ -285,7 +339,7 @@ def test_candidate_updater_is_copied_but_never_executed(
     candidate_path = mutate_bundle(
         release_bundle,
         replacements={"bin/policyctl.pyz": candidate_program},
-        version="1.0.0-rc.2",
+        version="1.0.0-rc.3",
         channel="prerelease",
     )
     apply_update(git_repo, Bundle.load(candidate_path), explicit_version=False)
@@ -302,7 +356,7 @@ def test_update_refuses_dirty_worktree(
     candidate = Bundle.load(
         mutate_bundle(
             release_bundle,
-            version="1.0.0-rc.2",
+            version="1.0.0-rc.3",
             channel="prerelease",
         )
     )

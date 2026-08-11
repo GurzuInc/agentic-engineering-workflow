@@ -128,6 +128,21 @@ def validate_adapters(files: dict[str, bytes]) -> None:
         "max_concurrent_threads_per_session",
     }:
         raise PolicyError("Codex project config contains unsupported settings")
+    claude_skill = "adapters/claude/.claude/skills/project-engineering-workflow/SKILL.md"
+    claude_settings_path = "adapters/claude/.claude/settings.json"
+    for required in (claude_skill, claude_settings_path):
+        if required not in files:
+            raise PolicyError(f"bundle is missing adapter contract: {required}")
+    claude_frontmatter = _frontmatter(files[claude_skill], claude_skill)
+    if set(claude_frontmatter) != {"name", "description", "disable-model-invocation"}:
+        raise PolicyError("Claude skill frontmatter contains unsupported fields")
+    if claude_frontmatter["name"] != "project-engineering-workflow":
+        raise PolicyError("Claude skill has an unexpected name")
+    if claude_frontmatter["disable-model-invocation"] is not True:
+        raise PolicyError("Claude skill must disable implicit model invocation")
+    claude_settings = load_json_bytes(files[claude_settings_path], claude_settings_path)
+    if claude_settings != {"$schema": "https://json.schemastore.org/claude-code-settings.json"}:
+        raise PolicyError("Claude project settings contain unsupported fields")
     expected_adapter_files = _expected_adapter_files()
     actual_adapter_files = {name for name in files if name.startswith("adapters/")}
     unexpected = sorted(actual_adapter_files - expected_adapter_files)
@@ -154,6 +169,16 @@ def validate_adapters(files: dict[str, bytes]) -> None:
             }
             if set(agent) != allowed:
                 raise PolicyError(f"Codex reviewer contains unsupported settings: {name}")
+        if name.startswith("adapters/claude/.claude/agents/") and name.endswith(".md"):
+            agent = _frontmatter(content, name)
+            if set(agent) != {"name", "description", "tools", "model", "permissionMode"}:
+                raise PolicyError(f"Claude reviewer contains unsupported settings: {name}")
+            if (
+                agent["tools"] != "Read, Grep, Glob"
+                or agent["model"] != "inherit"
+                or agent["permissionMode"] != "plan"
+            ):
+                raise PolicyError(f"Claude reviewer is not read-only: {name}")
 
 
 def _frontmatter(content: bytes, label: str) -> dict[str, Any]:
@@ -177,11 +202,20 @@ def _expected_adapter_files() -> set[str]:
         "project_test_reviewer.toml",
         "project_security_reviewer.toml",
     }
+    claude_agents = {
+        "project-scope-explorer.md",
+        "project-contract-reviewer.md",
+        "project-test-reviewer.md",
+        "project-security-reviewer.md",
+    }
     return {
         "adapters/codex/.codex/config.toml",
         "adapters/codex/.agents/skills/project-engineering-workflow/SKILL.md",
         "adapters/codex/.agents/skills/project-engineering-workflow/agents/openai.yaml",
         *{f"adapters/codex/.codex/agents/{name}" for name in codex_agents},
+        "adapters/claude/.claude/settings.json",
+        "adapters/claude/.claude/skills/project-engineering-workflow/SKILL.md",
+        *{f"adapters/claude/.claude/agents/{name}" for name in claude_agents},
     }
 
 

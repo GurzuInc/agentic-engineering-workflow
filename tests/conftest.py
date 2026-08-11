@@ -29,7 +29,7 @@ def release_bundle(tmp_path_factory: pytest.TempPathFactory, project_root: Path)
             "--output-dir",
             str(output),
             "--version",
-            "1.0.0-rc.2",
+            "1.0.0-rc.3",
             "--source-commit",
             "0123456789abcdef0123456789abcdef01234567",
         ],
@@ -38,7 +38,7 @@ def release_bundle(tmp_path_factory: pytest.TempPathFactory, project_root: Path)
         capture_output=True,
         text=True,
     )
-    return output / "engineering-policy-1.0.0-rc.2.zip"
+    return output / "engineering-policy-1.0.0-rc.3.zip"
 
 
 @pytest.fixture
@@ -77,7 +77,7 @@ def mutate_bundle(tmp_path: Path) -> Callable[..., Path]:
     ) -> Path:
         nonlocal counter
         counter += 1
-        candidate_version = version or "1.0.0-rc.2"
+        candidate_version = version or "1.0.0-rc.3"
         candidate_dir = tmp_path / f"candidate-{counter}"
         candidate_dir.mkdir()
         destination = candidate_dir / f"engineering-policy-{candidate_version}.zip"

@@ -96,7 +96,8 @@ def build_release(
             bundle.name: sha256_bytes(bundle.read_bytes()),
             policyctl.name: sha256_bytes(policyctl.read_bytes()),
         },
-        "supported_adapters": ["codex"],
+        "supported_adapters": ["codex", "claude"],
+        "adapter_validation": {"codex": "validated", "claude": "pending"},
         "supported_python": list(_SUPPORTED_PYTHON),
         "recovery": {
             "original_source_commit": _RECOVERY_SOURCE_COMMIT,
@@ -104,6 +105,7 @@ def build_release(
             "unpublished_rc1_bundle_sha256": _RECOVERY_BUNDLE_SHA256,
             "unpublished_rc1_updater_sha256": _RECOVERY_UPDATER_SHA256,
             "unpublished_rc1_was_tagged": False,
+            "failed_unpublished_candidates": ["v1.0.0-rc.2"],
         },
     }
     atomic_write_path(

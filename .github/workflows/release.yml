@@ -91,12 +91,11 @@ jobs:
         if: ${{ !contains(github.ref_name, '-') }}
         env:
           RC_SMOKE_RESULT: ${{ vars.RC_SMOKE_RESULT }}
-        run: test "$RC_SMOKE_RESULT" = "v1.0.0-rc.2:pass:$GITHUB_SHA"
-      - name: Require immutable releases
+        run: test "$RC_SMOKE_RESULT" = "v1.0.0-rc.3:pass:$GITHUB_SHA"
+      - name: Require recorded immutable-release preflight
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          test "$(gh api "/repos/$GITHUB_REPOSITORY/immutable-releases" --jq '.enabled')" = true
+          IMMUTABLE_RELEASES_ENABLED: ${{ vars.IMMUTABLE_RELEASES_ENABLED }}
+        run: test "$IMMUTABLE_RELEASES_ENABLED" = true
       - name: Download the verified release candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -114,14 +113,16 @@ jobs:
             echo
             echo "Workflow: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo
-            echo "Supported client: Codex >= 0.147.0"
+            echo "Supported adapters: Codex and Claude"
+            echo "Validation: Codex validated; Claude live-client validation pending follow-up."
             echo
             echo "Recovery: reconstructed from unpublished RC1 evidence; RC1 was never retroactively tagged."
+            echo "Candidate history: v1.0.0-rc.2 failed before release creation and is never altered or reused."
             echo
             if [[ "$GITHUB_REF_NAME" == *-* ]]; then
               echo "RC smoke result: pending post-publication validation."
             else
-              echo "RC smoke result: v1.0.0-rc.2 passed release, clean-install, doctor, and live workflow validation."
+              echo "RC smoke result: v1.0.0-rc.3 passed release, clean-install, doctor, and live Codex workflow validation; Claude validation remains pending."
             fi
             echo
             echo "Asset digests:"

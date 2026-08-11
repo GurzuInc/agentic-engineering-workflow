@@ -13,3 +13,9 @@ the RC1 updater SHA-256
 `7c2e39091d855a66e8f30fde232a447e916b1b04a8d5ad826fd6a7dd052f3376`.
 
 The unpublished RC1 release was never retroactively tagged or published.
+
+The protected `v1.0.0-rc.2` tag records the first reconstructed candidate. Its
+workflow failed before a draft or release asset was created, after the adapter
+scope was corrected from Codex-only to Codex and Claude. RC2 is failed,
+unpublished evidence and is never altered, deleted, or reused. Publication
+continues monotonically with `v1.0.0-rc.3`.

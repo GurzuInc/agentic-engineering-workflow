@@ -39,6 +39,14 @@ def run_doctor(repo: Path) -> list[Diagnostic]:
         diagnostics.extend(_client_diagnostic("codex", policy["client_minimums"]["codex"]))
         diagnostics.extend(_codex_trust(repo))
         diagnostics.extend(_codex_models(repo))
+    if "claude" in adapters:
+        diagnostics.append(
+            Diagnostic(
+                "warning",
+                "claude-validation-pending",
+                "Claude adapter installation is supported; live client validation is pending",
+            )
+        )
     if not diagnostics:
         diagnostics.append(
             Diagnostic("ok", "ready", "policy snapshot and configured clients are ready")
@@ -56,6 +64,8 @@ def _personal_skill_conflicts(adapters: set[str]) -> list[Diagnostic]:
                 ("codex", home / ".codex/skills/project-engineering-workflow/SKILL.md"),
             ]
         )
+    if "claude" in adapters:
+        candidates.append(("claude", home / ".claude/skills/project-engineering-workflow/SKILL.md"))
     return [
         Diagnostic(
             "error",
