@@ -1,10 +1,16 @@
 # Agentic Engineering Workflow
 
-The canonical, model-neutral engineering policy and synchronization tooling for Gurzu repositories.
+Generic engineering-policy and workflow tooling for Git repositories. Version
+1.0 publishes deterministic policy bundles and a self-contained `policyctl.pyz`
+for repository-scoped Codex workflows.
 
-This repository publishes declarative policy bundles and a self-contained `policyctl.pyz`. Consumer repositories pin a major-version-compatible snapshot and commit the generated Codex and Claude adapters for local review.
+Functional source is published through an Emitii-linked pull request after the
+documentation-only repository genesis. See [RECOVERY.md](RECOVERY.md) for the
+unpublished RC1 provenance boundary.
 
-Release assets and consumer enrollment are intentionally gated until client conformance, provenance, GitHub App, and protected-branch checks pass.
+Release assets and consumer enrollment remain gated until source, deterministic
+build, release integrity, attestation, clean-install, and live Codex validation
+pass.
 
 ## License
 
