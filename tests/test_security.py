@@ -1,0 +1,396 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import zipfile
+from pathlib import Path, PurePosixPath
+
+import pytest
+from conftest import commit_all
+
+from engineering_policy.bundle import Bundle
+from engineering_policy.errors import PolicyError
+from engineering_policy.operations import apply_update, initialize
+from engineering_policy.release import _verify_release
+from engineering_policy.repository import atomic_write
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../escape.txt",
+        "/absolute.txt",
+        "adapters/codex/.github/workflows/pwn.yml",
+        "adapters/codex/.github/CODEOWNERS",
+        "adapters/codex/engineering-policy.project.yaml",
+        "outside-allowlist.txt",
+        ".git/config",
+    ],
+)
+def test_malicious_candidate_paths_are_rejected(
+    release_bundle: Path, mutate_bundle, path: str
+) -> None:
+    malicious = mutate_bundle(release_bundle, additions={path: (b"malicious\n", 0o644)})
+    with pytest.raises(PolicyError):
+        Bundle.load(malicious)
+
+
+def test_symlink_member_is_rejected(release_bundle: Path, mutate_bundle) -> None:
+    malicious = mutate_bundle(
+        release_bundle,
+        additions={"adapters/codex/link": (b"../../outside", 0o120777)},
+    )
+    with pytest.raises(PolicyError, match="symlink"):
+        Bundle.load(malicious)
+
+
+def test_case_colliding_members_are_rejected(release_bundle: Path, mutate_bundle) -> None:
+    malicious = mutate_bundle(
+        release_bundle,
+        additions={"SPEC/POLICY.YAML": (b"collision\n", 0o644)},
+    )
+    with pytest.raises(PolicyError, match="case-colliding"):
+        Bundle.load(malicious)
+
+
+def test_checksum_mismatch_is_rejected(release_bundle: Path, mutate_bundle) -> None:
+    malicious = mutate_bundle(
+        release_bundle,
+        replacements={
+            "adapters/codex/.agents/skills/project-engineering-workflow/SKILL.md": b"tampered\n"
+        },
+        refresh_checksums=False,
+    )
+    with pytest.raises(PolicyError, match="checksum mismatch"):
+        Bundle.load(malicious)
+
+
+def test_archive_mode_must_match_manifest(release_bundle: Path, mutate_bundle) -> None:
+    malicious = mutate_bundle(
+        release_bundle,
+        mode_replacements={
+            "adapters/codex/.agents/skills/project-engineering-workflow/SKILL.md": 0o755
+        },
+    )
+    with pytest.raises(PolicyError, match="archive mode differs"):
+        Bundle.load(malicious)
+
+
+def test_candidate_cannot_loosen_trusted_protocol_schema(
+    release_bundle: Path, mutate_bundle
+) -> None:
+    malicious = mutate_bundle(
+        release_bundle,
+        replacements={
+            "schemas/policy.schema.json": b'{"$schema":"https://json-schema.org/draft/2020-12/schema"}\n'
+        },
+    )
+    with pytest.raises(PolicyError, match="replace trusted protocol schema"):
+        Bundle.load(malicious)
+
+
+def test_broken_migration_chain_is_rejected(release_bundle: Path, mutate_bundle) -> None:
+    with zipfile.ZipFile(release_bundle) as archive:
+        migration = json.loads(archive.read("migrations/0001-initial.json"))
+    migration["from_protocol"] = 42
+    malicious = mutate_bundle(
+        release_bundle,
+        replacements={
+            "migrations/0001-initial.json": (
+                json.dumps(migration, indent=2, sort_keys=True) + "\n"
+            ).encode()
+        },
+    )
+    with pytest.raises(PolicyError, match="migration chain is broken"):
+        Bundle.load(malicious)
+
+
+def test_adapter_cannot_gain_implicit_invocation_or_tools(
+    release_bundle: Path, mutate_bundle
+) -> None:
+    codex_skill = (
+        b"---\n"
+        b"name: project-engineering-workflow\n"
+        b"description: workflow\n"
+        b"allowed-tools: shell\n"
+        b"---\n"
+    )
+    malicious = mutate_bundle(
+        release_bundle,
+        replacements={
+            "adapters/codex/.agents/skills/project-engineering-workflow/SKILL.md": codex_skill
+        },
+    )
+    with pytest.raises(PolicyError, match="frontmatter may contain only"):
+        Bundle.load(malicious)
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"repository": "attacker/policy"}, "repository identity"),
+        ({"protocol_version": 99}, "manual re-bootstrap"),
+        ({"schema_version": 99}, "schema is unsupported"),
+        ({"channel": "stable"}, "channel does not match"),
+    ],
+)
+def test_manifest_identity_and_protocol_fail_closed(
+    release_bundle: Path, mutate_bundle, updates: dict, message: str
+) -> None:
+    malicious = mutate_bundle(release_bundle, manifest_updates=updates)
+    with pytest.raises(PolicyError, match=message):
+        Bundle.load(malicious)
+
+
+def test_manifest_and_policy_versions_must_agree(release_bundle: Path, mutate_bundle) -> None:
+    malicious = mutate_bundle(
+        release_bundle,
+        manifest_updates={"version": "1.0.0-rc.3"},
+    )
+    with pytest.raises(PolicyError, match="policy version differs"):
+        Bundle.load(malicious)
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"version": []}, "invalid semantic version"),
+        ({"channel": []}, "channel is invalid"),
+    ],
+)
+def test_malformed_manifest_values_fail_with_policy_error(
+    release_bundle: Path, mutate_bundle, updates: dict, message: str
+) -> None:
+    malicious = mutate_bundle(release_bundle, manifest_updates=updates)
+    with pytest.raises(PolicyError, match=message):
+        Bundle.load(malicious)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "adapters/codex/cafe\u0301.md",
+        "adapters/codex/CON.txt",
+        "adapters/codex/name:stream",
+        "adapters/codex/trailing.",
+        "adapters/codex/trailing ",
+        "adapters/codex/control\x1f.md",
+    ],
+)
+def test_candidate_paths_must_be_portable(release_bundle: Path, mutate_bundle, path: str) -> None:
+    malicious = mutate_bundle(release_bundle, additions={path: (b"unsafe\n", 0o644)})
+    with pytest.raises(PolicyError, match="unsafe path|path is unsafe"):
+        Bundle.load(malicious)
+
+
+def test_invalid_release_attestation_blocks_before_use(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    artifacts = [tmp_path / name for name in ("bundle.zip", "policyctl.pyz", "manifest", "sums")]
+    for artifact in artifacts:
+        artifact.write_bytes(b"candidate")
+    monkeypatch.setattr("engineering_policy.release.shutil.which", lambda _name: "/usr/bin/gh")
+    monkeypatch.setattr(
+        "engineering_policy.release.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 1, "", "invalid attestation"),
+    )
+    with pytest.raises(PolicyError, match="invalid attestation"):
+        _verify_release("v1.0.0-rc.2", *artifacts)
+
+
+def test_release_verification_uses_all_provenance_gates_and_strips_tokens(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    artifacts = [tmp_path / name for name in ("bundle.zip", "policyctl.pyz", "manifest", "sums")]
+    for artifact in artifacts:
+        artifact.write_bytes(b"candidate")
+    calls = []
+
+    def record(command, **kwargs):
+        calls.append((command, kwargs["env"]))
+        return subprocess.CompletedProcess(command, 0, "verified", "")
+
+    monkeypatch.setattr("engineering_policy.release.shutil.which", lambda _name: "/usr/bin/gh")
+    monkeypatch.setattr("engineering_policy.release.subprocess.run", record)
+    monkeypatch.setenv("GH_TOKEN", "write-capable")
+    monkeypatch.setenv("GITHUB_TOKEN", "write-capable")
+    monkeypatch.setenv("GH_ENTERPRISE_TOKEN", "enterprise-write-capable")
+    monkeypatch.setenv("GITHUB_ENTERPRISE_TOKEN", "enterprise-actions-token")
+    monkeypatch.setenv("GH_CONFIG_DIR", "/ambient/gh-config")
+    _verify_release("v1.0.0-rc.2", *artifacts)
+    commands = [" ".join(call[0]) for call in calls]
+    assert any("release verify v1.0.0-rc.2" in command for command in commands)
+    assert sum("release verify-asset" in command for command in commands) == 4
+    assert sum("attestation verify" in command for command in commands) == 4
+    assert sum("--source-ref refs/tags/v1.0.0-rc.2" in command for command in commands) == 4
+    assert all("GH_TOKEN" not in environment for _command, environment in calls)
+    assert all("GITHUB_TOKEN" not in environment for _command, environment in calls)
+    assert all("GH_ENTERPRISE_TOKEN" not in environment for _command, environment in calls)
+    assert all("GITHUB_ENTERPRISE_TOKEN" not in environment for _command, environment in calls)
+    assert all(environment["GH_HOST"] == "github.com" for _command, environment in calls)
+    assert all(
+        environment["GH_CONFIG_DIR"] != "/ambient/gh-config" for _command, environment in calls
+    )
+
+
+def test_release_verification_accepts_only_explicit_read_token(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    artifacts = [tmp_path / name for name in ("bundle.zip", "policyctl.pyz", "manifest", "sums")]
+    for artifact in artifacts:
+        artifact.write_bytes(b"candidate")
+    environments = []
+
+    def record(command, **kwargs):
+        environments.append(kwargs["env"])
+        return subprocess.CompletedProcess(command, 0, "verified", "")
+
+    monkeypatch.setattr("engineering_policy.release.shutil.which", lambda _name: "/usr/bin/gh")
+    monkeypatch.setattr("engineering_policy.release.subprocess.run", record)
+    monkeypatch.setenv("GH_TOKEN", "write-token")
+    monkeypatch.setenv("POLICYCTL_GITHUB_READ_TOKEN", "read-token")
+    _verify_release("v1.0.0-rc.2", *artifacts)
+    assert all(environment["GH_TOKEN"] == "read-token" for environment in environments)  # noqa: S105
+    assert all("POLICYCTL_GITHUB_READ_TOKEN" not in environment for environment in environments)
+
+
+def test_release_verification_timeout_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    artifacts = [tmp_path / name for name in ("bundle.zip", "policyctl.pyz", "manifest", "sums")]
+    for artifact in artifacts:
+        artifact.write_bytes(b"candidate")
+    monkeypatch.setattr("engineering_policy.release.shutil.which", lambda _name: "/usr/bin/gh")
+
+    def time_out(command, **kwargs):
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr("engineering_policy.release.subprocess.run", time_out)
+    with pytest.raises(PolicyError, match="verification timed out"):
+        _verify_release("v1.0.0-rc.2", *artifacts)
+
+
+def test_candidate_updater_is_copied_but_never_executed(
+    git_repo: Path, valid_bundle: Bundle, release_bundle: Path, mutate_bundle, tmp_path: Path
+) -> None:
+    initialize(git_repo, valid_bundle, ("codex",))
+    commit_all(git_repo)
+    marker = tmp_path / "candidate-executed"
+    candidate_program = (
+        "#!/usr/bin/env python3\n"
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('executed')\n"
+    ).encode()
+    candidate_path = mutate_bundle(
+        release_bundle,
+        replacements={"bin/policyctl.pyz": candidate_program},
+        version="1.0.0-rc.2",
+        channel="prerelease",
+    )
+    apply_update(git_repo, Bundle.load(candidate_path), explicit_version=False)
+    assert not marker.exists()
+    assert (git_repo / ".engineering-policy/bin/policyctl.pyz").read_bytes() == candidate_program
+
+
+def test_update_refuses_dirty_worktree(
+    git_repo: Path, valid_bundle: Bundle, release_bundle: Path, mutate_bundle
+) -> None:
+    initialize(git_repo, valid_bundle, ("codex",))
+    commit_all(git_repo)
+    (git_repo / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+    candidate = Bundle.load(
+        mutate_bundle(
+            release_bundle,
+            version="1.0.0-rc.2",
+            channel="prerelease",
+        )
+    )
+    with pytest.raises(PolicyError, match="worktree must be clean"):
+        apply_update(git_repo, candidate, explicit_version=False)
+
+
+def test_managed_atomic_write_is_bound_to_open_parent_directory(
+    monkeypatch: pytest.MonkeyPatch, git_repo: Path, tmp_path: Path
+) -> None:
+    managed = git_repo / ".codex"
+    managed.mkdir()
+    (managed / "config.toml").write_text("old\n", encoding="utf-8")
+    moved = git_repo / ".codex-original"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "config.toml").write_text("outside\n", encoding="utf-8")
+
+    from engineering_policy import repository as repository_module
+
+    original_replace = repository_module._atomic_replace_at
+
+    def swap_before_replace(parent_fd, name, content, mode, label):
+        managed.rename(moved)
+        managed.symlink_to(outside, target_is_directory=True)
+        return original_replace(parent_fd, name, content, mode, label)
+
+    monkeypatch.setattr(repository_module, "_atomic_replace_at", swap_before_replace)
+    atomic_write(git_repo, PurePosixPath(".codex/config.toml"), b"new\n")
+
+    assert (outside / "config.toml").read_text(encoding="utf-8") == "outside\n"
+    assert (moved / "config.toml").read_text(encoding="utf-8") == "new\n"
+
+
+def test_release_build_rejects_symlinked_output_root(project_root: Path, tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    output = tmp_path / "linked-output"
+    output.symlink_to(outside, target_is_directory=True)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(project_root / "scripts/build_release.py"),
+            "--output-dir",
+            str(output),
+        ],
+        cwd=project_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert list(outside.iterdir()) == []
+
+
+def test_release_build_does_not_follow_checksum_sidecar_symlink(
+    project_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "output"
+    subprocess.run(
+        [
+            sys.executable,
+            str(project_root / "scripts/build_release.py"),
+            "--output-dir",
+            str(output),
+        ],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    sidecar = output / "SHA256SUMS"
+    sidecar.unlink()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside\n", encoding="utf-8")
+    sidecar.symlink_to(outside)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(project_root / "scripts/build_release.py"),
+            "--output-dir",
+            str(output),
+        ],
+        cwd=project_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert outside.read_text(encoding="utf-8") == "outside\n"

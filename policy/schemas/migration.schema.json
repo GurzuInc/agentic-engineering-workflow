@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/GurzuInc/agentic-engineering-workflow/schemas/migration.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "from_protocol", "to_protocol", "operations"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "pattern": "^[0-9]{4}-[a-z0-9-]+$"},
+    "from_protocol": {"type": ["integer", "null"]},
+    "to_protocol": {"type": "integer", "minimum": 1},
+    "operations": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["op"], "properties": {"op": {"enum": ["install-snapshot", "replace-snapshot"]}}}}
+  }
+}

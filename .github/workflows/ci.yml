@@ -1,0 +1,65 @@
+name: Conformance
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          enable-cache: false
+      - run: uv lock --check
+      - run: uv sync --locked
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run pytest
+      - name: Require byte-identical release builds
+        run: |
+          uv run python scripts/build_release.py --output-dir dist/one --source-commit "$GITHUB_SHA"
+          uv run python scripts/build_release.py --output-dir dist/two --source-commit "$GITHUB_SHA"
+          diff -r --no-dereference dist/one dist/two
+      - run: python3 dist/one/policyctl.pyz --help
+      - run: git diff --exit-code
+      - name: Upload the interpreter-specific deterministic build
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: deterministic-python-${{ matrix.python-version }}
+          path: dist/one
+          if-no-files-found: error
+          retention-days: 1
+
+  cross-python-determinism:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download all interpreter-specific builds
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: deterministic-python-*
+          path: dist/by-python
+      - name: Require byte identity across Python 3.11 through 3.14
+        run: |
+          test "$(find dist/by-python -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" = 4
+          diff -r --no-dereference dist/by-python/deterministic-python-3.11 dist/by-python/deterministic-python-3.12
+          diff -r --no-dereference dist/by-python/deterministic-python-3.11 dist/by-python/deterministic-python-3.13
+          diff -r --no-dereference dist/by-python/deterministic-python-3.11 dist/by-python/deterministic-python-3.14

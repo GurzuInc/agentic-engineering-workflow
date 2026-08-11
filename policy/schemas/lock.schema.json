@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/GurzuInc/agentic-engineering-workflow/schemas/lock.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "protocol_version", "source_repository", "version", "channel", "constraint", "adapters", "guidance_mode", "sync_mode", "codeowners_mode", "bundle", "files"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "protocol_version": {"const": 1},
+    "source_repository": {"const": "GurzuInc/agentic-engineering-workflow"},
+    "version": {"type": "string"},
+    "channel": {"enum": ["stable", "prerelease"]},
+    "constraint": {"type": "string", "pattern": "^[0-9]+\\.x$"},
+    "adapters": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"const": "codex"}},
+    "guidance_mode": {"const": "preserve"},
+    "sync_mode": {"const": "manual"},
+    "codeowners_mode": {"const": "unmanaged"},
+    "bundle": {"type": "object", "additionalProperties": false, "required": ["asset", "sha256"], "properties": {"asset": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}},
+    "files": {"type": "object", "propertyNames": {"type": "string"}, "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+  }
+}
