@@ -164,10 +164,14 @@ def _check_bootstrap_collisions(repo: Path, prepared: dict) -> None:
         path = repo.joinpath(*raw.parts)
         if path.exists() or path.is_symlink():
             collisions.append(raw.as_posix())
-    for namespace in (
-        PurePosixPath(".codex"),
-        PurePosixPath(".agents/skills/project-engineering-workflow"),
-    ):
+    namespaces: list[PurePosixPath] = []
+    if any(raw.startswith(".codex/") for raw in prepared):
+        namespaces.append(PurePosixPath(".codex"))
+    if any(raw.startswith(".claude/") for raw in prepared):
+        namespaces.append(PurePosixPath(".claude"))
+    if any(raw.startswith(".agents/skills/project-engineering-workflow/") for raw in prepared):
+        namespaces.append(PurePosixPath(".agents/skills/project-engineering-workflow"))
+    for namespace in namespaces:
         path = repo.joinpath(*namespace.parts)
         if path.exists() or path.is_symlink():
             collisions.append(namespace.as_posix())
@@ -201,8 +205,8 @@ def _project_markdown(adapters: tuple[str, ...]) -> str:
     return (
         "# Project Engineering Policy Extensions\n\n"
         "Add repository-owned instructions here. These rules may strengthen but cannot "
-        "weaken canonical policy IDs. Repository-owned AGENTS.md remains authoritative "
-        "and byte-preserved.\n\n"
+        "weaken canonical policy IDs. Repository-owned AGENTS.md and CLAUDE.md remain "
+        "authoritative and byte-preserved.\n\n"
         f"Configured adapters: {configured}.\n"
     )
 

@@ -32,23 +32,26 @@ def test_init_preserves_guidance_and_unmanaged_repository_files(
 ) -> None:
     agents = git_repo / "AGENTS.md"
     agents.write_bytes(b"# Repository-owned guidance\n")
+    claude_guidance = git_repo / "CLAUDE.md"
+    claude_guidance.write_bytes(b"# Repository-owned Claude guidance\n")
     codeowners = git_repo / ".github/CODEOWNERS"
     codeowners.parent.mkdir()
     codeowners.write_bytes(b"/src/ @product-team\n")
     commit_all(git_repo, "chore: add repository policy")
     agents_digest = hashlib.sha256(agents.read_bytes()).hexdigest()
+    claude_digest = hashlib.sha256(claude_guidance.read_bytes()).hexdigest()
     owners_digest = hashlib.sha256(codeowners.read_bytes()).hexdigest()
 
-    changed = initialize(git_repo, valid_bundle, ("codex",))
+    changed = initialize(git_repo, valid_bundle, ("codex", "claude"))
 
     assert hashlib.sha256(agents.read_bytes()).hexdigest() == agents_digest
+    assert hashlib.sha256(claude_guidance.read_bytes()).hexdigest() == claude_digest
     assert hashlib.sha256(codeowners.read_bytes()).hexdigest() == owners_digest
     assert ".agents/skills/project-engineering-workflow/SKILL.md" in changed
+    assert ".claude/skills/project-engineering-workflow/SKILL.md" in changed
     assert not (git_repo / ".github/workflows/engineering-policy-sync.yml").exists()
-    assert not (git_repo / ".claude").exists()
-    assert not (git_repo / "CLAUDE.md").exists()
     lock = _read_lock(git_repo)
-    assert lock["adapters"] == ["codex"]
+    assert lock["adapters"] == ["codex", "claude"]
     assert lock["guidance_mode"] == "preserve"
     assert lock["sync_mode"] == "manual"
     assert lock["codeowners_mode"] == "unmanaged"
@@ -58,6 +61,8 @@ def test_init_preserves_guidance_and_unmanaged_repository_files(
         "sync_mode": "manual",
         "codeowners_mode": "unmanaged",
     }
+    project_guidance = (git_repo / "engineering-policy.project.md").read_text()
+    assert "AGENTS.md and CLAUDE.md" in project_guidance
     assert check_repository(git_repo) == []
 
 
@@ -71,7 +76,7 @@ def test_supported_cli_init_composes_verified_release_and_preserves_guidance(
 
     @contextmanager
     def verified_bundle(_client, version):
-        assert str(version) == "1.0.0-rc.2"
+        assert str(version) == "1.0.0-rc.3"
         yield valid_bundle
 
     monkeypatch.setattr("engineering_policy.cli.ReleaseClient.verified_bundle", verified_bundle)
@@ -81,9 +86,9 @@ def test_supported_cli_init_composes_verified_release_and_preserves_guidance(
             "--repo",
             str(git_repo),
             "--version",
-            "1.0.0-rc.2",
+            "1.0.0-rc.3",
             "--adapters",
-            "codex",
+            "codex,claude",
             "--guidance-mode",
             "preserve",
             "--sync-mode",
@@ -97,9 +102,49 @@ def test_supported_cli_init_composes_verified_release_and_preserves_guidance(
     assert check_repository(git_repo) == []
 
 
-def test_claude_is_rejected_as_unsupported() -> None:
-    with pytest.raises(PolicyError, match="unsupported adapters: claude"):
-        normalize_adapters(("claude",))
+def test_codex_and_claude_are_supported_individually_and_together() -> None:
+    assert normalize_adapters(("codex",)) == ("codex",)
+    assert normalize_adapters(("claude",)) == ("claude",)
+    assert normalize_adapters(("codex", "claude")) == ("codex", "claude")
+    with pytest.raises(PolicyError, match="unsupported adapters: unknown"):
+        normalize_adapters(("unknown",))
+
+
+def test_claude_only_install_is_repository_scoped_and_preserves_root_guidance(
+    git_repo: Path, valid_bundle: Bundle
+) -> None:
+    guidance = git_repo / "CLAUDE.md"
+    guidance.write_bytes(b"# Owned Claude guidance\n")
+    codex_config = git_repo / ".codex/config.toml"
+    codex_config.parent.mkdir()
+    codex_config.write_text("model = 'repository-owned'\n", encoding="utf-8")
+    commit_all(git_repo, "chore: add Claude guidance")
+    initialize(git_repo, valid_bundle, ("claude",))
+    assert guidance.read_bytes() == b"# Owned Claude guidance\n"
+    assert (git_repo / ".claude/skills/project-engineering-workflow/SKILL.md").is_file()
+    assert (git_repo / ".claude/agents/project-contract-reviewer.md").is_file()
+    assert codex_config.read_text() == "model = 'repository-owned'\n"
+    assert not (git_repo / ".agents").exists()
+    assert _read_lock(git_repo)["adapters"] == ["claude"]
+    assert check_repository(git_repo) == []
+
+
+def test_codex_only_install_preserves_repository_owned_claude_namespace(
+    git_repo: Path, valid_bundle: Bundle
+) -> None:
+    claude_settings = git_repo / ".claude/settings.json"
+    claude_settings.parent.mkdir()
+    claude_settings.write_text('{"repositoryOwned": true}\n', encoding="utf-8")
+    commit_all(git_repo, "chore: add repository-owned Claude settings")
+    initialize(git_repo, valid_bundle, ("codex",))
+    assert claude_settings.read_text() == '{"repositoryOwned": true}\n'
+    assert (git_repo / ".agents/skills/project-engineering-workflow/SKILL.md").is_file()
+    assert _read_lock(git_repo)["adapters"] == ["codex"]
+    assert check_repository(git_repo) == []
+    assert render_current(git_repo) == []
+    commit_all(git_repo)
+    assert apply_update(git_repo, valid_bundle, explicit_version=True) == []
+    assert claude_settings.read_text() == '{"repositoryOwned": true}\n'
 
 
 def test_init_rejects_managed_codex_collision(git_repo: Path, valid_bundle: Bundle) -> None:
@@ -110,6 +155,17 @@ def test_init_rejects_managed_codex_collision(git_repo: Path, valid_bundle: Bund
     with pytest.raises(PolicyError, match=".codex"):
         initialize(git_repo, valid_bundle, ("codex",))
     assert config.read_text() == "model = 'repository-model'\n"
+    assert not (git_repo / ".engineering-policy").exists()
+
+
+def test_init_rejects_managed_claude_collision(git_repo: Path, valid_bundle: Bundle) -> None:
+    settings = git_repo / ".claude/settings.json"
+    settings.parent.mkdir()
+    settings.write_text("{}\n", encoding="utf-8")
+    commit_all(git_repo, "chore: add Claude configuration")
+    with pytest.raises(PolicyError, match=".claude"):
+        initialize(git_repo, valid_bundle, ("claude",))
+    assert settings.read_text() == "{}\n"
     assert not (git_repo / ".engineering-policy").exists()
 
 
@@ -160,11 +216,13 @@ def test_update_preserves_modes_guidance_codeowners_and_overlay(
 ) -> None:
     agents = git_repo / "AGENTS.md"
     agents.write_bytes(b"# Owned\n")
+    claude_guidance = git_repo / "CLAUDE.md"
+    claude_guidance.write_bytes(b"# Claude owned\n")
     codeowners = git_repo / ".github/CODEOWNERS"
     codeowners.parent.mkdir()
     codeowners.write_bytes(b"* @team\n")
     commit_all(git_repo, "chore: add owned files")
-    initialize(git_repo, valid_bundle, ("codex",))
+    initialize(git_repo, valid_bundle, ("codex", "claude"))
     commit_all(git_repo)
     overlay = git_repo / "engineering-policy.project.yaml"
     original_overlay = overlay.read_text() + "# repository comment\n"
@@ -177,6 +235,7 @@ def test_update_preserves_modes_guidance_codeowners_and_overlay(
     apply_update(git_repo, candidate, explicit_version=False)
 
     assert agents.read_bytes() == b"# Owned\n"
+    assert claude_guidance.read_bytes() == b"# Claude owned\n"
     assert codeowners.read_bytes() == b"* @team\n"
     assert overlay.read_text() == original_overlay
     lock = _read_lock(git_repo)
@@ -185,6 +244,7 @@ def test_update_preserves_modes_guidance_codeowners_and_overlay(
         "manual",
         "unmanaged",
     )
+    assert lock["adapters"] == ["codex", "claude"]
     assert check_repository(git_repo) == []
 
 
@@ -220,7 +280,7 @@ def test_lock_and_snapshot_policy_versions_must_agree(git_repo: Path, valid_bund
     initialize(git_repo, valid_bundle, ("codex",))
     policy_path = git_repo / ".engineering-policy/spec/policy.yaml"
     content = policy_path.read_text().replace(
-        "policy_version: 1.0.0-rc.2", "policy_version: 1.0.0-rc.3"
+        "policy_version: 1.0.0-rc.3", "policy_version: 1.0.0-rc.4"
     )
     policy_path.write_text(content, encoding="utf-8")
     lock = _read_lock(git_repo)

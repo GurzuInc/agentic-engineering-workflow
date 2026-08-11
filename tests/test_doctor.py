@@ -17,6 +17,17 @@ def test_doctor_detects_personal_skill_conflicts(monkeypatch, tmp_path: Path) ->
     assert [item.code for item in diagnostics] == ["personal-skill-conflict"]
 
 
+def test_doctor_detects_personal_claude_skill_conflict(monkeypatch, tmp_path: Path) -> None:
+    skill = tmp_path / ".claude/skills/project-engineering-workflow/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: project-engineering-workflow\n---\n", encoding="utf-8")
+    monkeypatch.setattr("engineering_policy.doctor.Path.home", lambda: tmp_path)
+    diagnostics = _personal_skill_conflicts({"claude"})
+    assert [(item.code, "claude" in item.message) for item in diagnostics] == [
+        ("personal-skill-conflict", True)
+    ]
+
+
 def test_doctor_detects_unavailable_configured_models(monkeypatch, tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     agents = repo / ".codex/agents"
@@ -47,3 +58,14 @@ def test_doctor_reports_ready_for_a_conformant_supported_install(
     monkeypatch.setattr("engineering_policy.doctor._codex_models", lambda _r: [])
     diagnostics = run_doctor(git_repo)
     assert [(item.severity, item.code) for item in diagnostics] == [("ok", "ready")]
+
+
+def test_doctor_reports_claude_validation_as_pending_without_diagnosing_absence(
+    monkeypatch, git_repo: Path, valid_bundle: Bundle
+) -> None:
+    initialize(git_repo, valid_bundle, ("claude",))
+    monkeypatch.setattr("engineering_policy.doctor._personal_skill_conflicts", lambda _a: [])
+    diagnostics = run_doctor(git_repo)
+    assert [(item.severity, item.code) for item in diagnostics] == [
+        ("warning", "claude-validation-pending")
+    ]

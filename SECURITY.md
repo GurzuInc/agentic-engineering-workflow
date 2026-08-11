@@ -65,7 +65,8 @@ test -n "$workflow_source_commit"
 jq -e --arg version "$workflow_version" --arg tag "$workflow_tag" --arg source "$workflow_source_commit" '
   .version == $version and .tag == $tag and .source_commit == $source and
   .repository == "GurzuInc/agentic-engineering-workflow" and
-  .supported_adapters == ["codex"]
+  .supported_adapters == ["codex", "claude"] and
+  .adapter_validation == {"codex":"validated", "claude":"pending"}
 ' release-manifest.json
 ```
 
@@ -75,7 +76,7 @@ Only after every command succeeds, execute the verified updater:
 python3 ./policyctl.pyz init \
   --repo <repo> \
   --version "$workflow_version" \
-  --adapters codex \
+  --adapters codex,claude \
   --guidance-mode preserve \
   --sync-mode manual \
   --codeowners-mode unmanaged

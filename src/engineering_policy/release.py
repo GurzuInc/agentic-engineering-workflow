@@ -39,6 +39,7 @@ _RECOVERY = {
         "7c2e39091d855a66e8f30fde232a447e916b1b04a8d5ad826fd6a7dd052f3376"
     ),
     "unpublished_rc1_was_tagged": False,
+    "failed_unpublished_candidates": ["v1.0.0-rc.2"],
 }
 
 
@@ -140,6 +141,7 @@ def _validate_release_artifacts(
         "source_commit",
         "asset_digests",
         "supported_adapters",
+        "adapter_validation",
         "supported_python",
         "recovery",
     }
@@ -153,7 +155,8 @@ def _validate_release_artifacts(
         or manifest["version"] != str(version)
         or manifest["tag"] != tag
         or manifest["channel"] != expected_channel
-        or manifest["supported_adapters"] != ["codex"]
+        or manifest["supported_adapters"] != ["codex", "claude"]
+        or manifest["adapter_validation"] != {"codex": "validated", "claude": "pending"}
         or manifest["supported_python"] != _SUPPORTED_PYTHON
         or manifest["recovery"] != _RECOVERY
     ):

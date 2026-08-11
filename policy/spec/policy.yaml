@@ -4,6 +4,9 @@ policy_version: 1.0.0
 canonical_repository: GurzuInc/agentic-engineering-workflow
 client_minimums:
   codex: 0.147.0
+adapter_validation:
+  codex: validated
+  claude: pending
 canonical_policies:
   - id: workflow.scope.preflight
     statement: Read applicable repository guidance and report branch, HEAD, and dirty state before mutation.
@@ -67,7 +70,7 @@ gates:
     evidence: Immutable release, release asset, checksum, and artifact attestation verification pass.
   - id: adapter-conformance
     blocks: stable-release
-    evidence: Supported Codex clients pass explicit-invocation, trust, permission, and forward-scenario tests.
+    evidence: Codex passes explicit-invocation, trust, permission, and forward-scenario tests; Claude live-client validation is explicitly recorded as pending follow-up.
 evidence_rules:
   - id: evidence.commands
     requirement: Record the exact verification commands and results without secrets.

@@ -2,11 +2,11 @@
 
 ## Scope and ownership
 
-- This repository is the source of truth for the declarative engineering policy, Codex adapter, trusted `policyctl` updater, release tooling, schemas, migrations, and consumer bootstrap assets.
+- This repository is the source of truth for the declarative engineering policy, Codex and Claude adapters, trusted `policyctl` updater, release tooling, schemas, migrations, and consumer bootstrap assets.
 - Keep canonical source under `policy/`, updater code under `src/engineering_policy/`, build logic under `scripts/`, and conformance coverage under `tests/`.
 - Treat generated `dist/` contents as local evidence only. Never edit or commit them as source.
 - Do not enroll this repository into its own unpublished policy snapshot. Root `AGENTS.md` is repository governance, not a generated consumer adapter.
-- Version 1.0 supports Codex only. Claude files, diagnostics, or compatibility behavior are outside the supported interface.
+- Version 1.0 supports Codex and Claude adapters. Codex is live-validated; Claude live-client validation is explicitly pending follow-up.
 
 ## Change discipline
 
