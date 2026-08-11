@@ -16,7 +16,7 @@ policyctl = "engineering_policy.cli:main"
 [dependency-groups]
 dev = [
   "jsonschema>=4.25.0,<5",
-  "pytest>=8.4.1,<9",
+  "pytest>=9.1.1,<10",
   "ruff>=0.12.7,<1",
 ]
 
