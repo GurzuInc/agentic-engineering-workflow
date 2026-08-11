@@ -1,0 +1,10 @@
+{
+  "$schema": "../schemas/migration.schema.json",
+  "schema_version": 1,
+  "id": "0001-initial",
+  "from_protocol": null,
+  "to_protocol": 1,
+  "operations": [
+    {"op": "install-snapshot"}
+  ]
+}

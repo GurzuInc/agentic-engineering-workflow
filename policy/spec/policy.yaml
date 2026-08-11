@@ -1,0 +1,79 @@
+schema_version: 1
+protocol_version: 1
+policy_version: 1.0.0
+canonical_repository: GurzuInc/agentic-engineering-workflow
+client_minimums:
+  codex: 0.147.0
+canonical_policies:
+  - id: workflow.scope.preflight
+    statement: Read applicable repository guidance and report branch, HEAD, and dirty state before mutation.
+  - id: workflow.plan.read-only
+    statement: Planning and standalone review are read-only.
+  - id: workflow.implementation.approved
+    statement: Implement only a plan approved for the exact current goal, repository set, branches, constraints, and local mutations.
+  - id: workflow.writer.single
+    statement: Keep one coordinator as the sole writer across a multi-repository change.
+  - id: workflow.verify.local
+    statement: Verify each owning repository independently and fix relevant failures before handoff.
+  - id: workflow.review.fresh
+    statement: Obtain fresh applicable contract, test, and security review after implementation.
+  - id: workflow.authorization.external
+    statement: External writes, releases, deployments, identity changes, infrastructure changes, and protected-branch mutations require exact current-conversation authorization.
+  - id: workflow.secrets.never
+    statement: Never expose credentials or sensitive values in source, prompts, commands, output, logs, fixtures, or handoffs.
+  - id: workflow.commit.verified
+    statement: Commit verified product changes by default inside each owning repository unless the user opts out or safe staging is impossible.
+lifecycle:
+  - id: clarify
+    outcome: Resolve only decisions that materially affect scope, architecture, ownership, or risk.
+  - id: plan
+    outcome: Record repositories, seams, acceptance criteria, verification, assumptions, and risks.
+  - id: implement
+    outcome: Apply approved minimal slices and preserve unrelated work.
+  - id: verify
+    outcome: Run repository-local checks and inspect the resulting diff.
+  - id: review
+    outcome: Obtain fresh read-only review using the applicable roles.
+  - id: handoff
+    outcome: Report accomplished work, evidence, residual risk, and one next action.
+roles:
+  - id: coordinator
+    permission: writer
+    prompt: prompts/coordinator.md
+  - id: scope-explorer
+    permission: read-only
+    prompt: prompts/scope-explorer.md
+  - id: contract-reviewer
+    permission: read-only
+    prompt: prompts/contract-reviewer.md
+  - id: test-reviewer
+    permission: read-only
+    prompt: prompts/test-reviewer.md
+  - id: security-reviewer
+    permission: read-only
+    prompt: prompts/security-reviewer.md
+gates:
+  - id: architecture-resolved
+    blocks: implement
+    evidence: Material architecture and ownership decisions are resolved or explicitly deferred outside scope.
+  - id: mutation-approved
+    blocks: implement
+    evidence: Current conversation approval names the plan, repositories, branches, and local changes.
+  - id: verification-passed
+    blocks: commit
+    evidence: Owning repository checks pass and the final diff is reviewed.
+  - id: release-provenance
+    blocks: stable-release
+    evidence: Immutable release, release asset, checksum, and artifact attestation verification pass.
+  - id: adapter-conformance
+    blocks: stable-release
+    evidence: Supported Codex clients pass explicit-invocation, trust, permission, and forward-scenario tests.
+evidence_rules:
+  - id: evidence.commands
+    requirement: Record the exact verification commands and results without secrets.
+  - id: evidence.repositories
+    requirement: Keep evidence scoped by independent repository.
+  - id: evidence.release
+    requirement: Record release tag, source commit, asset digest, attestation verification, and workflow URL.
+  - id: evidence.review
+    requirement: Give fresh reviewers the goal, acceptance criteria, actual diff, and verification evidence rather than writer reasoning history.

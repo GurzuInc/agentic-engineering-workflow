@@ -1,0 +1,155 @@
+name: Release policy
+
+on:
+  push:
+    tags:
+      - "v1.*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          enable-cache: false
+      - run: uv lock --check
+      - run: uv sync --locked
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run pytest
+      - name: Verify annotated tag and exact source
+        run: |
+          test "$(git cat-file -t "$GITHUB_REF")" = tag
+          test "$(git rev-parse "$GITHUB_REF^{commit}")" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+      - name: Require byte-identical release builds
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          uv run python scripts/build_release.py \
+            --output-dir dist/one \
+            --version "$version" \
+            --source-commit "$GITHUB_SHA"
+          uv run python scripts/build_release.py \
+            --output-dir dist/two \
+            --version "$version" \
+            --source-commit "$GITHUB_SHA"
+          diff -r --no-dereference dist/one dist/two
+          mkdir -p dist/release
+          cp dist/one/* dist/release/
+      - name: Verify release contract
+        run: |
+          cd dist/release
+          sha256sum --check SHA256SUMS
+          test "$(find . -maxdepth 1 -type f | wc -l | tr -d ' ')" = 4
+          bundle="$(find . -maxdepth 1 -name 'engineering-policy-*.zip' -type f)"
+          test -n "$bundle"
+          unzip -p "$bundle" bin/policyctl.pyz > embedded-policyctl.pyz
+          cmp embedded-policyctl.pyz policyctl.pyz
+          rm embedded-policyctl.pyz
+      - name: Upload the verified release candidate
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: policy-release-${{ github.sha }}-${{ github.ref_name }}
+          path: |
+            dist/release/engineering-policy-*.zip
+            dist/release/policyctl.pyz
+            dist/release/release-manifest.json
+            dist/release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Reconfirm annotated tag and exact source
+        run: |
+          test "$(git cat-file -t "$GITHUB_REF")" = tag
+          test "$(git rev-parse "$GITHUB_REF^{commit}")" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+      - name: Require stable promotion evidence
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          RC_SMOKE_RESULT: ${{ vars.RC_SMOKE_RESULT }}
+        run: test "$RC_SMOKE_RESULT" = "v1.0.0-rc.2:pass:$GITHUB_SHA"
+      - name: Require immutable releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh api "/repos/$GITHUB_REPOSITORY/immutable-releases" --jq '.enabled')" = true
+      - name: Download the verified release candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: policy-release-${{ github.sha }}-${{ github.ref_name }}
+          path: dist/release
+      - name: Verify transferred artifacts
+        run: |
+          cd dist/release
+          sha256sum --check SHA256SUMS
+          test "$(find . -maxdepth 1 -type f | wc -l | tr -d ' ')" = 4
+      - name: Prepare release notes
+        run: |
+          {
+            echo "Source commit: $GITHUB_SHA"
+            echo
+            echo "Workflow: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            echo "Supported client: Codex >= 0.147.0"
+            echo
+            echo "Recovery: reconstructed from unpublished RC1 evidence; RC1 was never retroactively tagged."
+            echo
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+              echo "RC smoke result: pending post-publication validation."
+            else
+              echo "RC smoke result: v1.0.0-rc.2 passed release, clean-install, doctor, and live workflow validation."
+            fi
+            echo
+            echo "Asset digests:"
+            sed 's/^/- /' dist/release/SHA256SUMS
+          } > release-notes.md
+      - name: Create draft and upload every asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=(--draft --verify-tag --notes-file release-notes.md)
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            dist/release/engineering-policy-*.zip \
+            dist/release/policyctl.pyz \
+            dist/release/release-manifest.json \
+            dist/release/SHA256SUMS \
+            "${flags[@]}"
+      - name: Attest every release asset
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            dist/release/engineering-policy-*.zip
+            dist/release/policyctl.pyz
+            dist/release/release-manifest.json
+            dist/release/SHA256SUMS
+      - name: Publish the immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/GurzuInc/agentic-engineering-workflow/schemas/manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "protocol_version", "repository", "version", "channel", "files"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "protocol_version": {"const": 1},
+    "repository": {"const": "GurzuInc/agentic-engineering-workflow"},
+    "version": {"type": "string"},
+    "channel": {"enum": ["stable", "prerelease"]},
+    "files": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["path", "sha256", "mode"], "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "mode": {"enum": ["0644", "0755"]}}}}
+  }
+}

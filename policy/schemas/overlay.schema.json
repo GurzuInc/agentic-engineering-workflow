@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/GurzuInc/agentic-engineering-workflow/schemas/overlay.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository", "integration"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "repository": {"type": "object", "additionalProperties": false, "required": ["name"], "properties": {"name": {"type": "string", "minLength": 1}, "description": {"type": "string"}}},
+    "integration": {"type": "object", "additionalProperties": false, "required": ["guidance_mode", "sync_mode", "codeowners_mode"], "properties": {"guidance_mode": {"const": "preserve"}, "sync_mode": {"const": "manual"}, "codeowners_mode": {"const": "unmanaged"}}},
+    "commands": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["name", "run"], "properties": {"name": {"type": "string"}, "run": {"type": "string"}}}},
+    "ownership": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "owner"], "properties": {"path": {"type": "string"}, "owner": {"type": "string"}}}},
+    "additional_policies": {"type": "array", "items": {"$ref": "#/$defs/projectPolicy"}},
+    "stricter_policies": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["canonical_id", "statement"], "properties": {"canonical_id": {"type": "string", "pattern": "^workflow\\."}, "statement": {"type": "string", "minLength": 1}}}}
+  },
+  "$defs": {"projectPolicy": {"type": "object", "additionalProperties": false, "required": ["id", "statement"], "properties": {"id": {"type": "string", "pattern": "^project\\."}, "statement": {"type": "string", "minLength": 1}}}}
+}
