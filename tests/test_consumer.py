@@ -76,7 +76,7 @@ def test_supported_cli_init_composes_verified_release_and_preserves_guidance(
 
     @contextmanager
     def verified_bundle(_client, version):
-        assert str(version) == "1.0.0-rc.3"
+        assert str(version) == "2.0.0-rc.1"
         yield valid_bundle
 
     monkeypatch.setattr("engineering_policy.cli.ReleaseClient.verified_bundle", verified_bundle)
@@ -86,7 +86,7 @@ def test_supported_cli_init_composes_verified_release_and_preserves_guidance(
             "--repo",
             str(git_repo),
             "--version",
-            "1.0.0-rc.3",
+            "2.0.0-rc.1",
             "--adapters",
             "codex,claude",
             "--guidance-mode",
@@ -229,7 +229,7 @@ def test_update_preserves_modes_guidance_codeowners_and_overlay(
     overlay.write_text(original_overlay, encoding="utf-8")
     commit_all(git_repo, "chore: customize overlay")
     candidate = Bundle.load(
-        mutate_bundle(release_bundle, version="1.1.0-rc.1", channel="prerelease")
+        mutate_bundle(release_bundle, version="2.1.0-rc.1", channel="prerelease")
     )
 
     apply_update(git_repo, candidate, explicit_version=False)
@@ -259,7 +259,7 @@ def test_same_snapshot_update_is_idempotent(git_repo: Path, valid_bundle: Bundle
     ("key", "value", "message"),
     [
         ("channel", "stable", "channel does not match"),
-        ("constraint", "2.x", "constraint does not match"),
+        ("constraint", "1.x", "constraint does not match"),
         ("guidance_mode", "replace", "schema violation"),
         ("sync_mode", "automatic", "schema violation"),
         ("codeowners_mode", "managed", "schema violation"),
@@ -280,7 +280,7 @@ def test_lock_and_snapshot_policy_versions_must_agree(git_repo: Path, valid_bund
     initialize(git_repo, valid_bundle, ("codex",))
     policy_path = git_repo / ".engineering-policy/spec/policy.yaml"
     content = policy_path.read_text().replace(
-        "policy_version: 1.0.0-rc.3", "policy_version: 1.0.0-rc.4"
+        "policy_version: 2.0.0-rc.1", "policy_version: 2.0.0-rc.2"
     )
     policy_path.write_text(content, encoding="utf-8")
     lock = _read_lock(git_repo)

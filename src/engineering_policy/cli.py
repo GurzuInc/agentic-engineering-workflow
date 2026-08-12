@@ -35,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
         "doctor", help="diagnose client, trust, model, and skill conflicts"
     )
     doctor.add_argument("--repo", type=Path, default=Path.cwd())
+    doctor.add_argument("--client", choices=("codex", "claude", "all"), default="all")
 
     update = subparsers.add_parser("update", help="verify and apply a canonical release snapshot")
     update.add_argument("--repo", type=Path, default=Path.cwd())
@@ -64,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "doctor":
             repo = require_git_repository(args.repo)
-            diagnostics = run_doctor(repo)
+            diagnostics = run_doctor(repo, client=args.client)
             for item in diagnostics:
                 print(f"{item.severity.upper()} {item.code}: {item.message}")
             return 1 if any(item.severity == "error" for item in diagnostics) else 0

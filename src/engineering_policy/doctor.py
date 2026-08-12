@@ -23,7 +23,7 @@ class Diagnostic:
     message: str
 
 
-def run_doctor(repo: Path) -> list[Diagnostic]:
+def run_doctor(repo: Path, *, client: str = "all") -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     try:
         lock = load_lock(repo)
@@ -34,19 +34,38 @@ def run_doctor(repo: Path) -> list[Diagnostic]:
     policy_path = repo / ".engineering-policy/spec/policy.yaml"
     policy = load_yaml_bytes(policy_path.read_bytes(), str(policy_path))
     adapters = set(lock["adapters"])
-    diagnostics.extend(_personal_skill_conflicts(adapters))
-    if "codex" in adapters:
+    selected = adapters if client == "all" else {client}
+    unavailable = selected - adapters
+    if unavailable:
+        return [
+            Diagnostic(
+                "error",
+                "client-not-enrolled",
+                f"selected client is not enrolled: {', '.join(sorted(unavailable))}",
+            )
+        ]
+    diagnostics.extend(_personal_skill_conflicts(selected))
+    if "codex" in selected:
         diagnostics.extend(_client_diagnostic("codex", policy["client_minimums"]["codex"]))
         diagnostics.extend(_codex_trust(repo))
         diagnostics.extend(_codex_models(repo))
-    if "claude" in adapters:
-        diagnostics.append(
-            Diagnostic(
-                "warning",
-                "claude-validation-pending",
-                "Claude adapter installation is supported; live client validation is pending",
-            )
-        )
+    if "claude" in selected:
+        validation = policy["adapter_validation"]["claude"]
+        minimum = policy["client_minimums"].get("claude")
+        if validation == "validated":
+            diagnostics.extend(_client_diagnostic("claude", minimum))
+        else:
+            version = _client_version("claude")
+            if isinstance(version, Diagnostic):
+                diagnostics.append(version)
+            else:
+                diagnostics.append(
+                    Diagnostic(
+                        "warning",
+                        "claude-validation-pending",
+                        f"Claude {version} is installed; live client validation is pending",
+                    )
+                )
     if not diagnostics:
         diagnostics.append(
             Diagnostic("ok", "ready", "policy snapshot and configured clients are ready")
@@ -78,28 +97,34 @@ def _personal_skill_conflicts(adapters: set[str]) -> list[Diagnostic]:
 
 
 def _client_diagnostic(command: str, minimum: str) -> list[Diagnostic]:
+    version = _client_version(command)
+    if isinstance(version, Diagnostic):
+        return [version]
+    required = Version.parse(minimum)
+    if version < required:
+        return [
+            Diagnostic(
+                "error",
+                "client-version",
+                f"{command} {version} is older than the supported minimum {required}",
+            )
+        ]
+    return []
+
+
+def _client_version(command: str) -> Version | Diagnostic:
     executable = shutil.which(command)
     if executable is None:
-        return [
-            Diagnostic("error", "client-missing", f"configured client is not installed: {command}")
-        ]
+        return Diagnostic(
+            "error", "client-missing", f"configured client is not installed: {command}"
+        )
     result = subprocess.run(  # noqa: S603 - executable is resolved from a fixed client name
         [executable, "--version"], check=False, capture_output=True, text=True, timeout=15
     )
     match = _VERSION_PATTERN.search(f"{result.stdout}\n{result.stderr}")
     if result.returncode != 0 or match is None:
-        return [Diagnostic("error", "client-version", f"cannot determine {command} version")]
-    installed = Version.parse(match.group(1))
-    required = Version.parse(minimum)
-    if installed < required:
-        return [
-            Diagnostic(
-                "error",
-                "client-version",
-                f"{command} {installed} is older than the supported minimum {required}",
-            )
-        ]
-    return []
+        return Diagnostic("error", "client-version", f"cannot determine {command} version")
+    return Version.parse(match.group(1))
 
 
 def _codex_trust(repo: Path) -> list[Diagnostic]:

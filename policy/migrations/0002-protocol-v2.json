@@ -1,0 +1,12 @@
+{
+  "$schema": "../schemas/migration.schema.json",
+  "from_protocol": 1,
+  "id": "0002-protocol-v2",
+  "operations": [
+    {
+      "op": "replace-snapshot"
+    }
+  ],
+  "schema_version": 2,
+  "to_protocol": 2
+}

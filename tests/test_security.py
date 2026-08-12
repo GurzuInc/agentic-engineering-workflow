@@ -182,11 +182,7 @@ def test_bridge_rejects_mixed_v1_and_v2_schema_sets(
 ) -> None:
     malicious = mutate_bundle(
         v2_bundle,
-        replacements={
-            "schemas/policy.schema.json": (
-                project_root / "policy/schemas/policy.schema.json"
-            ).read_bytes()
-        },
+        replacements={"schemas/policy.schema.json": b"{}\n"},
     )
     with pytest.raises(PolicyError, match="replace trusted protocol schema"):
         Bundle.load(malicious)
@@ -203,15 +199,13 @@ def test_bridge_rejects_unexpected_schema_in_otherwise_valid_v2_set(
         Bundle.load(malicious)
 
 
-def test_explicit_major_update_uses_bridge_without_executing_candidate_updater(
+def test_same_major_update_uses_trusted_updater_without_executing_candidate_updater(
     git_repo: Path, valid_bundle: Bundle, v2_bundle: Path
 ) -> None:
     initialize(git_repo, valid_bundle, ("codex",))
     commit_all(git_repo)
     candidate = Bundle.load(v2_bundle)
-    with pytest.raises(PolicyError, match="automatic updates cannot cross"):
-        apply_update(git_repo, candidate, explicit_version=False)
-    apply_update(git_repo, candidate, explicit_version=True)
+    apply_update(git_repo, candidate, explicit_version=False)
     assert load_lock(git_repo)["protocol_version"] == 2
     assert check_repository(git_repo) == []
 
@@ -378,7 +372,7 @@ def test_bundle_version_major_must_match_protocol(
 def test_manifest_and_policy_versions_must_agree(release_bundle: Path, mutate_bundle) -> None:
     malicious = mutate_bundle(
         release_bundle,
-        manifest_updates={"version": "1.0.0-rc.4"},
+        manifest_updates={"version": "2.0.0-rc.2"},
     )
     with pytest.raises(PolicyError, match="policy version differs"):
         Bundle.load(malicious)
@@ -517,7 +511,7 @@ def test_candidate_updater_is_copied_but_never_executed(
     candidate_path = mutate_bundle(
         release_bundle,
         replacements={"bin/policyctl.pyz": candidate_program},
-        version="1.0.0-rc.3",
+        version="2.0.0-rc.1",
         channel="prerelease",
     )
     apply_update(git_repo, Bundle.load(candidate_path), explicit_version=False)
@@ -534,7 +528,7 @@ def test_update_refuses_dirty_worktree(
     candidate = Bundle.load(
         mutate_bundle(
             release_bundle,
-            version="1.0.0-rc.3",
+            version="2.0.0-rc.1",
             channel="prerelease",
         )
     )

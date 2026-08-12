@@ -6,6 +6,7 @@ from pathlib import Path
 from engineering_policy.bundle import Bundle
 from engineering_policy.doctor import _codex_models, _personal_skill_conflicts, run_doctor
 from engineering_policy.operations import initialize
+from engineering_policy.semver import Version
 
 
 def test_doctor_detects_personal_skill_conflicts(monkeypatch, tmp_path: Path) -> None:
@@ -60,12 +61,33 @@ def test_doctor_reports_ready_for_a_conformant_supported_install(
     assert [(item.severity, item.code) for item in diagnostics] == [("ok", "ready")]
 
 
-def test_doctor_reports_claude_validation_as_pending_without_diagnosing_absence(
+def test_doctor_requires_an_explicitly_selected_pending_claude_client(
     monkeypatch, git_repo: Path, valid_bundle: Bundle
 ) -> None:
     initialize(git_repo, valid_bundle, ("claude",))
     monkeypatch.setattr("engineering_policy.doctor._personal_skill_conflicts", lambda _a: [])
     diagnostics = run_doctor(git_repo)
+    assert [(item.severity, item.code) for item in diagnostics] == [("error", "client-missing")]
+
+
+def test_doctor_reports_detected_claude_version_while_validation_is_pending(
+    monkeypatch, git_repo: Path, valid_bundle: Bundle
+) -> None:
+    initialize(git_repo, valid_bundle, ("claude",))
+    monkeypatch.setattr("engineering_policy.doctor._personal_skill_conflicts", lambda _a: [])
+    monkeypatch.setattr(
+        "engineering_policy.doctor._client_version", lambda _client: Version.parse("1.2.3")
+    )
+    diagnostics = run_doctor(git_repo, client="claude")
     assert [(item.severity, item.code) for item in diagnostics] == [
         ("warning", "claude-validation-pending")
+    ]
+    assert "1.2.3" in diagnostics[0].message
+
+
+def test_doctor_rejects_a_client_that_is_not_enrolled(git_repo: Path, valid_bundle: Bundle) -> None:
+    initialize(git_repo, valid_bundle, ("codex",))
+    diagnostics = run_doctor(git_repo, client="claude")
+    assert [(item.severity, item.code) for item in diagnostics] == [
+        ("error", "client-not-enrolled")
     ]

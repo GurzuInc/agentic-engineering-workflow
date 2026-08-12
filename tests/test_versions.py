@@ -32,15 +32,13 @@ def test_prerelease_channel_selects_latest_within_major() -> None:
     assert str(selected) == "1.0.0"
 
 
-def test_automatic_major_upgrade_is_blocked_but_explicit_selection_is_allowed(
+def test_automatic_same_major_upgrade_is_allowed(
     git_repo: Path, valid_bundle: Bundle, v2_bundle: Path
 ) -> None:
     initialize(git_repo, valid_bundle, ("codex",))
     commit_all(git_repo)
     candidate = Bundle.load(v2_bundle)
-    with pytest.raises(PolicyError, match="cannot cross"):
-        apply_update(git_repo, candidate, explicit_version=False)
-    apply_update(git_repo, candidate, explicit_version=True)
+    apply_update(git_repo, candidate, explicit_version=False)
     assert load_lock(git_repo)["constraint"] == "2.x"
 
 
@@ -50,7 +48,7 @@ def test_explicit_rollback_is_supported(
     newer = Bundle.load(
         mutate_bundle(
             release_bundle,
-            version="1.0.0-rc.4",
+            version="2.0.0-rc.2",
             channel="prerelease",
         )
     )
@@ -58,13 +56,13 @@ def test_explicit_rollback_is_supported(
     commit_all(git_repo)
     older = Bundle.load(release_bundle)
     apply_update(git_repo, older, explicit_version=True)
-    assert load_lock(git_repo)["version"] == "1.0.0-rc.3"
+    assert load_lock(git_repo)["version"] == "2.0.0-rc.1"
 
 
 def test_stable_consumer_rejects_prerelease_update(
     git_repo: Path, release_bundle: Path, mutate_bundle
 ) -> None:
-    stable = Bundle.load(mutate_bundle(release_bundle, version="1.0.0", channel="stable"))
+    stable = Bundle.load(mutate_bundle(release_bundle, version="2.0.0", channel="stable"))
     initialize(git_repo, stable, ("codex",))
     commit_all(git_repo)
     prerelease = Bundle.load(release_bundle)
