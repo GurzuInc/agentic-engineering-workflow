@@ -47,8 +47,41 @@ def valid_bundle(release_bundle: Path) -> Bundle:
 
 
 @pytest.fixture
+def v1_bundle(release_bundle: Path, mutate_bundle, project_root: Path) -> Path:
+    def released(path: str) -> bytes:
+        return subprocess.check_output(["git", "show", f"v1.0.2:{path}"], cwd=project_root)
+
+    return mutate_bundle(
+        release_bundle,
+        replacements={
+            "spec/policy.yaml": released("policy/spec/policy.yaml"),
+            "migrations/0001-initial.json": released("policy/migrations/0001-initial.json"),
+            **{
+                f"schemas/{name}": released(f"policy/schemas/{name}")
+                for name in (
+                    "lock.schema.json",
+                    "manifest.schema.json",
+                    "migration.schema.json",
+                    "overlay.schema.json",
+                    "policy.schema.json",
+                )
+            },
+        },
+        removals={"migrations/0002-protocol-v2.json"},
+        version="1.0.2",
+        channel="stable",
+        manifest_updates={"schema_version": 1, "protocol_version": 1},
+    )
+
+
+@pytest.fixture
 def v2_bundle(release_bundle: Path, mutate_bundle, project_root: Path) -> Path:
     return release_bundle
+
+
+@pytest.fixture
+def v2_stable_bundle(release_bundle: Path, mutate_bundle) -> Path:
+    return mutate_bundle(release_bundle, version="2.0.0", channel="stable")
 
 
 @pytest.fixture

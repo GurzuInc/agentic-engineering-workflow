@@ -32,13 +32,15 @@ def test_prerelease_channel_selects_latest_within_major() -> None:
     assert str(selected) == "1.0.0"
 
 
-def test_automatic_same_major_upgrade_is_allowed(
-    git_repo: Path, valid_bundle: Bundle, v2_bundle: Path
+def test_automatic_major_upgrade_is_blocked_but_explicit_selection_is_allowed(
+    git_repo: Path, v1_bundle: Path, v2_stable_bundle: Path
 ) -> None:
-    initialize(git_repo, valid_bundle, ("codex",))
+    initialize(git_repo, Bundle.load(v1_bundle), ("codex",))
     commit_all(git_repo)
-    candidate = Bundle.load(v2_bundle)
-    apply_update(git_repo, candidate, explicit_version=False)
+    candidate = Bundle.load(v2_stable_bundle)
+    with pytest.raises(PolicyError, match="cannot cross"):
+        apply_update(git_repo, candidate, explicit_version=False)
+    apply_update(git_repo, candidate, explicit_version=True)
     assert load_lock(git_repo)["constraint"] == "2.x"
 
 

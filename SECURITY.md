@@ -14,7 +14,7 @@ credentials.
 
 ```bash
 set -euo pipefail
-workflow_version=1.0.2
+workflow_version=2.0.0
 workflow_tag="v${workflow_version}"
 workflow_bundle="engineering-policy-${workflow_version}.zip"
 workflow_bootstrap_dir="$(mktemp -d)"
@@ -63,6 +63,7 @@ workflow_tag_object="$(jq -r '.object.sha' < <(curl --proto '=https' --tlsv1.2 -
 workflow_source_commit="$(jq -r 'select(.object.type == "commit") | .object.sha' < <(curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location "https://api.github.com/repos/GurzuInc/agentic-engineering-workflow/git/tags/${workflow_tag_object}"))"
 test -n "$workflow_source_commit"
 jq -e --arg version "$workflow_version" --arg tag "$workflow_tag" --arg source "$workflow_source_commit" '
+  .schema_version == 2 and .protocol_version == 2 and
   .version == $version and .tag == $tag and .source_commit == $source and
   .repository == "GurzuInc/agentic-engineering-workflow" and
   .supported_adapters == ["codex", "claude"] and

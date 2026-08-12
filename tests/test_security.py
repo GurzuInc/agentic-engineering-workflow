@@ -199,13 +199,15 @@ def test_bridge_rejects_unexpected_schema_in_otherwise_valid_v2_set(
         Bundle.load(malicious)
 
 
-def test_same_major_update_uses_trusted_updater_without_executing_candidate_updater(
-    git_repo: Path, valid_bundle: Bundle, v2_bundle: Path
+def test_explicit_major_update_uses_bridge_without_executing_candidate_updater(
+    git_repo: Path, v1_bundle: Path, v2_stable_bundle: Path
 ) -> None:
-    initialize(git_repo, valid_bundle, ("codex",))
+    initialize(git_repo, Bundle.load(v1_bundle), ("codex",))
     commit_all(git_repo)
-    candidate = Bundle.load(v2_bundle)
-    apply_update(git_repo, candidate, explicit_version=False)
+    candidate = Bundle.load(v2_stable_bundle)
+    with pytest.raises(PolicyError, match="automatic updates cannot cross"):
+        apply_update(git_repo, candidate, explicit_version=False)
+    apply_update(git_repo, candidate, explicit_version=True)
     assert load_lock(git_repo)["protocol_version"] == 2
     assert check_repository(git_repo) == []
 
