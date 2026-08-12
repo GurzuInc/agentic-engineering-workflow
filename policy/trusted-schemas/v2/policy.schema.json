@@ -12,14 +12,17 @@
     "client_minimums": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["codex", "claude"],
-      "properties": {"codex": {"type": "string", "minLength": 1}, "claude": {"type": "string", "minLength": 1}}
+      "required": ["codex"],
+      "properties": {
+        "codex": {"const": "0.147.0"},
+        "claude": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$"}
+      }
     },
     "adapter_validation": {
       "type": "object",
       "additionalProperties": false,
       "required": ["codex", "claude"],
-      "properties": {"codex": {"const": "validated"}, "claude": {"const": "validated"}}
+      "properties": {"codex": {"const": "validated"}, "claude": {"enum": ["pending", "validated"]}}
     },
     "canonical_policies": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/idStatement"}},
     "lifecycle": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["id", "outcome"], "properties": {"id": {"type": "string"}, "outcome": {"type": "string"}}, "additionalProperties": false}},
@@ -27,6 +30,16 @@
     "gates": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["id", "blocks", "evidence"], "properties": {"id": {"type": "string"}, "blocks": {"type": "string"}, "evidence": {"type": "string"}}, "additionalProperties": false}},
     "evidence_rules": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["id", "requirement"], "properties": {"id": {"type": "string"}, "requirement": {"type": "string"}}, "additionalProperties": false}}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"adapter_validation": {"properties": {"claude": {"const": "pending"}}, "required": ["claude"]}}},
+      "then": {"properties": {"client_minimums": {"not": {"required": ["claude"]}}}}
+    },
+    {
+      "if": {"properties": {"adapter_validation": {"properties": {"claude": {"const": "validated"}}, "required": ["claude"]}}},
+      "then": {"properties": {"client_minimums": {"required": ["claude"]}}}
+    }
+  ],
   "$defs": {
     "idStatement": {"type": "object", "additionalProperties": false, "required": ["id", "statement"], "properties": {"id": {"type": "string", "pattern": "^workflow\\."}, "statement": {"type": "string", "minLength": 1}}}
   }

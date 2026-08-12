@@ -54,8 +54,8 @@ def v2_bundle(release_bundle: Path, mutate_bundle, project_root: Path) -> Path:
             "schema_version": 2,
             "protocol_version": 2,
             "policy_version": "2.0.0",
-            "client_minimums": {"codex": "0.0.0", "claude": "0.0.0"},
-            "adapter_validation": {"codex": "validated", "claude": "validated"},
+            "client_minimums": {"codex": "0.147.0"},
+            "adapter_validation": {"codex": "validated", "claude": "pending"},
         }
     )
     migration_0001 = json.loads((project_root / "policy/migrations/0001-initial.json").read_text())

@@ -7,7 +7,7 @@
 - Treat generated `dist/` contents as local evidence only. Never edit or commit them as source.
 - Do not enroll this repository into its own unpublished policy snapshot. Root `AGENTS.md` is repository governance, not a generated consumer adapter.
 - Version 1.0 supports Codex and Claude adapters. Codex is live-validated; Claude live-client validation is explicitly pending follow-up.
-- Version 1.0.1 remains a protocol-v1 release and is the trusted bridge for explicit upgrades to the complete reviewed protocol-v2 schema set. It does not claim Claude validation or v2 general availability.
+- Version 1.0.2 remains a protocol-v1 release and is the trusted bridge for explicit upgrades to the complete reviewed protocol-v2 schema set. It permits protocol-v2 general availability with Codex validated and Claude validation explicitly pending.
 
 ## Change discipline
 

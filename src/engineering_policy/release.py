@@ -20,6 +20,7 @@ from engineering_policy.constants import BUNDLE_ASSET_TEMPLATE, SOURCE_REPOSITOR
 from engineering_policy.errors import PolicyError
 from engineering_policy.repository import atomic_write_path
 from engineering_policy.semver import Version, choose_latest
+from engineering_policy.validation import load_yaml_bytes
 
 _API_ROOT = f"https://api.github.com/repos/{SOURCE_REPOSITORY}"
 _SIGNER_WORKFLOW = f"{SOURCE_REPOSITORY}/.github/workflows/release.yml"
@@ -33,7 +34,7 @@ _RELEASE_PROTOCOLS = {
     1: {"schema_version": 1, "adapter_validation": {"codex": "validated", "claude": "pending"}},
     2: {
         "schema_version": 2,
-        "adapter_validation": {"codex": "validated", "claude": "validated"},
+        "adapter_validation": {"codex": "validated", "claude": "pending"},
     },
 }
 _RECOVERY = {
@@ -104,6 +105,11 @@ class ReleaseClient:
             ):
                 raise PolicyError(
                     "downloaded bundle schema or protocol differs from the release manifest"
+                )
+            policy = load_yaml_bytes(bundle.files["spec/policy.yaml"], "spec/policy.yaml")
+            if policy["adapter_validation"] != release_contract["adapter_validation"]:
+                raise PolicyError(
+                    "downloaded bundle adapter validation differs from the release manifest"
                 )
             if bundle.files.get("bin/policyctl.pyz") != pyz_path.read_bytes():
                 raise PolicyError(

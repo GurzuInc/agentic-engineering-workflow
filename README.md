@@ -45,10 +45,13 @@ Codex version is `0.147.0`. Claude adapter installation is supported, while live
 Claude client validation remains explicit pending follow-up. Supported Python
 versions are 3.11 through 3.14.
 
-Version 1.0.1 is the protocol bridge for explicit major updates. Its released
+Version 1.0.2 is the protocol bridge for explicit major updates. Its released
 bundle remains schema/protocol v1 and keeps Claude validation `pending`. The
 already-trusted updater embeds two complete, exact schema-digest sets: the
-released v1 set and the reviewed v2 set in `policy/trusted-schemas/v2`. It
+released v1 set and the reviewed v2 set in `policy/trusted-schemas/v2`. The v2
+schema requires an exact Codex minimum and permits Claude validation to remain
+`pending` without a minimum; a later `validated` Claude status requires an
+exact minimum. The updater
 accepts a v2 candidate only when the manifest, policy, migration chain, release
 contract, and every schema byte match the reviewed v2 contract. Automatic
 updates remain pinned to the enrolled major, and candidate updater bytes are
