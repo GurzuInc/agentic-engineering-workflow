@@ -36,6 +36,10 @@ def test_public_cli_surface_is_exact() -> None:
         "--codeowners-mode",
     }
     assert "--adopt-existing" not in init.format_help()
+    doctor = subparsers.choices["doctor"]
+    client = next(action for action in doctor._actions if action.dest == "client")
+    assert client.choices == ("codex", "claude", "all")
+    assert client.default == "all"
 
 
 def test_repository_formats_parse(project_root: Path) -> None:

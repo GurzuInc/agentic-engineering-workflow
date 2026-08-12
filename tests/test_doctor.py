@@ -4,7 +4,12 @@ import json
 from pathlib import Path
 
 from engineering_policy.bundle import Bundle
-from engineering_policy.doctor import _codex_models, _personal_skill_conflicts, run_doctor
+from engineering_policy.doctor import (
+    _client_diagnostic,
+    _codex_models,
+    _personal_skill_conflicts,
+    run_doctor,
+)
 from engineering_policy.operations import initialize
 from engineering_policy.semver import Version
 
@@ -91,3 +96,18 @@ def test_doctor_rejects_a_client_that_is_not_enrolled(git_repo: Path, valid_bund
     assert [(item.severity, item.code) for item in diagnostics] == [
         ("error", "client-not-enrolled")
     ]
+
+
+def test_validated_claude_accepts_its_exact_minimum(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "engineering_policy.doctor._client_version", lambda _client: Version.parse("1.2.3")
+    )
+    assert _client_diagnostic("claude", "1.2.3") == []
+
+
+def test_validated_claude_rejects_an_older_version(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "engineering_policy.doctor._client_version", lambda _client: Version.parse("1.2.2")
+    )
+    diagnostics = _client_diagnostic("claude", "1.2.3")
+    assert [(item.severity, item.code) for item in diagnostics] == [("error", "client-version")]
