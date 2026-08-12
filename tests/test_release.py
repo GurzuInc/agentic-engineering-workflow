@@ -362,6 +362,21 @@ def test_release_artifact_contract_accepts_reviewed_v2_contract(
     _validate_release_artifacts(*artifacts[:-1])
 
 
+def test_release_artifact_contract_accepts_validated_claude_v2_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    artifacts = _release_artifacts(tmp_path, raw_version="2.0.0-rc.1")
+    _version, _tag, bundle, pyz, manifest_path, checksums, commit = artifacts
+    manifest = json.loads(manifest_path.read_text())
+    manifest["adapter_validation"]["claude"] = "validated"
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    _refresh_release_checksums(bundle, pyz, manifest_path, checksums)
+    monkeypatch.setattr(
+        "engineering_policy.release._resolve_annotated_tag_commit", lambda _tag: commit
+    )
+    _validate_release_artifacts(*artifacts[:-1])
+
+
 @pytest.mark.parametrize(
     "mutation",
     [

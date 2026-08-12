@@ -31,10 +31,16 @@ _METADATA_DEADLINE = 30
 _ASSET_DEADLINE = 60
 _SUPPORTED_PYTHON = ["3.11", "3.12", "3.13", "3.14"]
 _RELEASE_PROTOCOLS = {
-    1: {"schema_version": 1, "adapter_validation": {"codex": "validated", "claude": "pending"}},
+    1: {
+        "schema_version": 1,
+        "adapter_validation": ({"codex": "validated", "claude": "pending"},),
+    },
     2: {
         "schema_version": 2,
-        "adapter_validation": {"codex": "validated", "claude": "pending"},
+        "adapter_validation": (
+            {"codex": "validated", "claude": "pending"},
+            {"codex": "validated", "claude": "validated"},
+        ),
     },
 }
 _RECOVERY = {
@@ -179,7 +185,7 @@ def _validate_release_artifacts(
         or manifest["tag"] != tag
         or manifest["channel"] != expected_channel
         or manifest["supported_adapters"] != ["codex", "claude"]
-        or manifest["adapter_validation"] != release_protocol["adapter_validation"]
+        or manifest["adapter_validation"] not in release_protocol["adapter_validation"]
         or manifest["supported_python"] != _SUPPORTED_PYTHON
         or manifest["recovery"] != _RECOVERY
     ):
