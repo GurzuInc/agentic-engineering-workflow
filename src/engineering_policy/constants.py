@@ -75,7 +75,7 @@ TRUSTED_SCHEMA_SETS_SHA256 = {
             "41bcfd24e04fd3513da7d7a1587d68e5e633562b14bd191cc7480e0499fe0fc6"
         ),
         "schemas/policy.schema.json": (
-            "c39fa28f2758c473557ca524fe6d0f3639b8cab68602c372d0aa51b50881d3c9"
+            "0a756655f261603f5979897a2306db04f789b3033f88760e10dc34f1e1b5bc5d"
         ),
     },
 }

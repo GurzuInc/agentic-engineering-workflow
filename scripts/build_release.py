@@ -97,7 +97,7 @@ def build_release(
             policyctl.name: sha256_bytes(policyctl.read_bytes()),
         },
         "supported_adapters": ["codex", "claude"],
-        "adapter_validation": {"codex": "validated", "claude": "pending"},
+        "adapter_validation": policy["adapter_validation"],
         "supported_python": list(_SUPPORTED_PYTHON),
         "recovery": {
             "original_source_commit": _RECOVERY_SOURCE_COMMIT,

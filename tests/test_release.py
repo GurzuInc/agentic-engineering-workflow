@@ -304,7 +304,7 @@ def _release_artifacts(
         "supported_adapters": ["codex", "claude"],
         "adapter_validation": {
             "codex": "validated",
-            "claude": "pending" if version.major == 1 else "validated",
+            "claude": "pending",
         },
         "supported_python": ["3.11", "3.12", "3.13", "3.14"],
         "recovery": {
@@ -358,6 +358,21 @@ def test_release_artifact_contract_accepts_reviewed_v2_contract(
     artifacts = _release_artifacts(tmp_path, raw_version="2.0.0-rc.1")
     monkeypatch.setattr(
         "engineering_policy.release._resolve_annotated_tag_commit", lambda _tag: artifacts[-1]
+    )
+    _validate_release_artifacts(*artifacts[:-1])
+
+
+def test_release_artifact_contract_accepts_validated_claude_v2_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    artifacts = _release_artifacts(tmp_path, raw_version="2.0.0-rc.1")
+    _version, _tag, bundle, pyz, manifest_path, checksums, commit = artifacts
+    manifest = json.loads(manifest_path.read_text())
+    manifest["adapter_validation"]["claude"] = "validated"
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    _refresh_release_checksums(bundle, pyz, manifest_path, checksums)
+    monkeypatch.setattr(
+        "engineering_policy.release._resolve_annotated_tag_commit", lambda _tag: commit
     )
     _validate_release_artifacts(*artifacts[:-1])
 
@@ -558,5 +573,25 @@ def test_verified_bundle_cross_binds_outer_and_inner_protocol(
         "engineering_policy.release._validate_release_artifacts", mismatched_contract
     )
     with pytest.raises(PolicyError, match="differs from the release manifest"):
+        with ReleaseClient().verified_bundle(Version.parse("1.0.0-rc.3")):
+            pass
+
+
+def test_verified_bundle_cross_binds_outer_and_inner_adapter_validation(
+    monkeypatch: pytest.MonkeyPatch, release_bundle: Path
+) -> None:
+    assets = {path.name: path for path in release_bundle.parent.iterdir()}
+    _mock_release_downloads(monkeypatch, assets)
+    original = _validate_release_artifacts
+
+    def mismatched_contract(*args, **kwargs):
+        contract = original(*args, **kwargs)
+        contract["adapter_validation"] = {"codex": "validated", "claude": "validated"}
+        return contract
+
+    monkeypatch.setattr(
+        "engineering_policy.release._validate_release_artifacts", mismatched_contract
+    )
+    with pytest.raises(PolicyError, match="adapter validation differs"):
         with ReleaseClient().verified_bundle(Version.parse("1.0.0-rc.3")):
             pass

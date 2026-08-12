@@ -96,6 +96,85 @@ def test_bridge_accepts_only_the_complete_reviewed_v2_schema_set(v2_bundle: Path
     bundle = Bundle.load(v2_bundle)
     assert bundle.manifest["schema_version"] == 2
     assert bundle.manifest["protocol_version"] == 2
+    policy = yaml.safe_load(bundle.files["spec/policy.yaml"])
+    assert policy["client_minimums"] == {"codex": "0.147.0"}
+    assert policy["adapter_validation"] == {"codex": "validated", "claude": "pending"}
+
+
+@pytest.mark.parametrize(
+    ("minimums", "validation"),
+    [
+        ({"codex": "0.147.0", "claude": "1.2.3"}, "pending"),
+        ({"codex": "0.147.0"}, "validated"),
+    ],
+)
+def test_bridge_rejects_inconsistent_claude_minimum_and_validation_status(
+    v2_bundle: Path, mutate_bundle, minimums: dict[str, str], validation: str
+) -> None:
+    with zipfile.ZipFile(v2_bundle) as archive:
+        policy = yaml.safe_load(archive.read("spec/policy.yaml"))
+    policy["client_minimums"] = minimums
+    policy["adapter_validation"]["claude"] = validation
+    malicious = mutate_bundle(
+        v2_bundle,
+        replacements={"spec/policy.yaml": yaml.safe_dump(policy, sort_keys=False).encode()},
+        version="2.0.0",
+        channel="stable",
+        manifest_updates={"schema_version": 2, "protocol_version": 2},
+    )
+    with pytest.raises(PolicyError, match="schema violation"):
+        Bundle.load(malicious)
+
+
+def test_bridge_accepts_validated_claude_only_with_an_exact_minimum(
+    v2_bundle: Path, mutate_bundle
+) -> None:
+    with zipfile.ZipFile(v2_bundle) as archive:
+        policy = yaml.safe_load(archive.read("spec/policy.yaml"))
+    policy["client_minimums"]["claude"] = "1.2.3"
+    policy["adapter_validation"]["claude"] = "validated"
+    candidate = mutate_bundle(
+        v2_bundle,
+        replacements={"spec/policy.yaml": yaml.safe_dump(policy, sort_keys=False).encode()},
+        version="2.0.0",
+        channel="stable",
+        manifest_updates={"schema_version": 2, "protocol_version": 2},
+    )
+    Bundle.load(candidate)
+
+
+@pytest.mark.parametrize(
+    ("client", "minimum", "validation"),
+    [
+        ("codex", "latest", "pending"),
+        ("codex", "0.147", "pending"),
+        ("codex", "0.148.0", "pending"),
+        ("claude", "*", "validated"),
+        ("claude", ">=1.2.3", "validated"),
+        ("claude", "01.2.3", "validated"),
+        ("claude", "1.2.3-01", "validated"),
+    ],
+)
+def test_bridge_rejects_nonexact_client_minimums(
+    v2_bundle: Path,
+    mutate_bundle,
+    client: str,
+    minimum: str,
+    validation: str,
+) -> None:
+    with zipfile.ZipFile(v2_bundle) as archive:
+        policy = yaml.safe_load(archive.read("spec/policy.yaml"))
+    policy["client_minimums"][client] = minimum
+    policy["adapter_validation"]["claude"] = validation
+    malicious = mutate_bundle(
+        v2_bundle,
+        replacements={"spec/policy.yaml": yaml.safe_dump(policy, sort_keys=False).encode()},
+        version="2.0.0",
+        channel="stable",
+        manifest_updates={"schema_version": 2, "protocol_version": 2},
+    )
+    with pytest.raises(PolicyError, match="schema violation"):
+        Bundle.load(malicious)
 
 
 def test_bridge_rejects_mixed_v1_and_v2_schema_sets(
@@ -267,8 +346,8 @@ def test_bundle_version_major_must_match_protocol(
                 "schema_version": 2,
                 "protocol_version": 2,
                 "policy_version": version,
-                "client_minimums": {"codex": "0.0.0", "claude": "0.0.0"},
-                "adapter_validation": {"codex": "validated", "claude": "validated"},
+                "client_minimums": {"codex": "0.147.0"},
+                "adapter_validation": {"codex": "validated", "claude": "pending"},
             }
         )
         migration_0001 = json.loads(
