@@ -14,7 +14,7 @@ credentials.
 
 ```bash
 set -euo pipefail
-workflow_version=1.0.0
+workflow_version=1.0.1
 workflow_tag="v${workflow_version}"
 workflow_bundle="engineering-policy-${workflow_version}.zip"
 workflow_bootstrap_dir="$(mktemp -d)"
@@ -86,4 +86,7 @@ After enrollment, use the repository-pinned updater for every operation, for
 example `python3 <repo>/.engineering-policy/bin/policyctl.pyz check --repo
 <repo>`. Do not replace it with an ambient `policyctl` executable.
 
-Stable releases are not supported until the release gates documented in this repository pass. Prerelease versions may change incompatibly and must not be used for production enforcement.
+Stable releases are supported only after the immutable RC, exact-source,
+checksum, attestation, and recorded-smoke promotion gates documented in this
+repository pass. Prerelease versions may change incompatibly and must not be
+used for production enforcement.

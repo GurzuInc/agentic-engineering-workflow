@@ -121,10 +121,12 @@ class Bundle:
             actual = sha256_bytes(members[name])
             if actual != item["sha256"]:
                 raise PolicyError(f"checksum mismatch for {name}")
-        policy = validate_policy(members)
+        policy = validate_policy(members, expected_protocol=manifest["protocol_version"])
+        if policy["schema_version"] != manifest["schema_version"]:
+            raise PolicyError("policy schema differs from the bundle manifest")
         if policy["policy_version"] != manifest["version"]:
             raise PolicyError("policy version differs from the bundle manifest")
-        validate_migrations(members)
+        validate_migrations(members, protocol_version=manifest["protocol_version"])
         validate_adapters(members)
         return cls(path=path, manifest=manifest, files=members, digest=sha256_file(path))
 

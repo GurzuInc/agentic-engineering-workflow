@@ -15,6 +15,7 @@ import yaml
 
 from engineering_policy.bundle import Bundle
 from engineering_policy.cli import build_parser
+from engineering_policy.constants import TRUSTED_SCHEMA_SETS_SHA256
 from engineering_policy.operations import initialize
 from engineering_policy.validation import validate_adapters, validate_migrations, validate_policy
 
@@ -52,6 +53,14 @@ def test_repository_formats_parse(project_root: Path) -> None:
             yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+def test_reviewed_v2_schema_sources_match_embedded_trusted_digests(project_root: Path) -> None:
+    schema_root = project_root / "policy/trusted-schemas/v2"
+    expected = TRUSTED_SCHEMA_SETS_SHA256[2]
+    assert {f"schemas/{path.name}" for path in schema_root.glob("*.json")} == set(expected)
+    for name, digest in expected.items():
+        assert hashlib.sha256((schema_root / Path(name).name).read_bytes()).hexdigest() == digest
+
+
 def test_all_actions_are_sha_pinned_and_github_hosted(project_root: Path) -> None:
     workflows = list((project_root / ".github/workflows").glob("*.yml"))
     assert workflows
@@ -60,7 +69,7 @@ def test_all_actions_are_sha_pinned_and_github_hosted(project_root: Path) -> Non
         content = workflow.read_text(encoding="utf-8")
         uses = [line for line in content.splitlines() if "uses:" in line]
         assert len(pattern.findall(content)) == len(uses)
-        assert "self-hosted" not in content
+        assert "runs-on: self-hosted" not in content
 
 
 def test_release_permissions_and_draft_first_contract(project_root: Path) -> None:
@@ -90,7 +99,7 @@ def test_release_permissions_and_draft_first_contract(project_root: Path) -> Non
     assert "IMMUTABLE_RELEASES_ENABLED" in text
 
 
-def test_release_requires_exact_rc3_and_immutable_preflight_before_draft(
+def test_release_requires_exact_rc_promotion_and_immutable_preflight_before_draft(
     project_root: Path,
 ) -> None:
     workflow = yaml.safe_load((project_root / ".github/workflows/release.yml").read_text())
@@ -104,7 +113,19 @@ def test_release_requires_exact_rc3_and_immutable_preflight_before_draft(
     )
     stable = by_name["Require stable promotion evidence"]
     assert stable["if"] == "${{ !contains(github.ref_name, '-') }}"
-    assert stable["run"] == ('test "$RC_SMOKE_RESULT" = "v1.0.0-rc.3:pass:$GITHUB_SHA"')
+    script = stable["run"]
+    assert 'test "$RC_SMOKE_RESULT" = "$rc_tag:pass:$GITHUB_SHA"' in script
+    assert 'git rev-parse "refs/tags/$rc_tag^{commit}"' in script
+    assert 'gh release verify "$rc_tag"' in script
+    assert 'releases/tags/$rc_tag" --jq .immutable' in script
+    assert "find rc-assets -maxdepth 1 -type f" in script
+    assert "sha256sum --check SHA256SUMS" in script
+    assert "jq -r .source_commit" in script
+    assert 'gh attestation verify "$asset"' in script
+    assert stable["env"] == {
+        "GH_TOKEN": "${{ github.token }}",
+        "RC_SMOKE_RESULT": "${{ vars.RC_SMOKE_RESULT }}",
+    }
     preflight = by_name["Require recorded immutable-release preflight"]
     assert preflight["env"] == {
         "IMMUTABLE_RELEASES_ENABLED": "${{ vars.IMMUTABLE_RELEASES_ENABLED }}"

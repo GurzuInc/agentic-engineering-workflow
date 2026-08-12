@@ -10,8 +10,6 @@ from pathlib import Path, PurePosixPath
 from engineering_policy.bundle import Bundle, sha256_bytes
 from engineering_policy.constants import (
     BUNDLE_ASSET_TEMPLATE,
-    PROTOCOL_VERSION,
-    SCHEMA_VERSION,
     SOURCE_REPOSITORY,
     SUPPORTED_ADAPTERS,
     SUPPORTED_CODEOWNERS_MODES,
@@ -140,8 +138,8 @@ def create_lock(
 ) -> dict:
     version = Version.parse(bundle.version)
     return {
-        "schema_version": SCHEMA_VERSION,
-        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": bundle.manifest["schema_version"],
+        "protocol_version": bundle.manifest["protocol_version"],
         "source_repository": SOURCE_REPOSITORY,
         "version": bundle.version,
         "channel": bundle.channel,
@@ -166,11 +164,19 @@ def load_lock(repo: Path) -> dict:
             raise PolicyError("policy lock is missing; run policyctl init") from exc
         raise
     lock = load_json_bytes(lock_content, str(repo / _LOCK_PATH))
+    protocol_version = lock.get("protocol_version")
+    schema_version = lock.get("schema_version")
+    if not isinstance(protocol_version, int) or not isinstance(schema_version, int):
+        raise PolicyError("policy lock schema or protocol is invalid")
     schema_relative = PurePosixPath(".engineering-policy/spec/schemas/lock.schema.json")
     schema_content = _read_required_file(
         repo, schema_relative, "lock schema", _MAX_TRUSTED_SCHEMA_SIZE
     )
-    validate_trusted_schema(schema_content, "schemas/lock.schema.json")
+    validate_trusted_schema(
+        schema_content,
+        "schemas/lock.schema.json",
+        protocol_version=protocol_version,
+    )
     schema = load_json_bytes(schema_content, str(repo / schema_relative))
     validate_with_schema(lock, schema, "policy lock")
     _validate_lock_semantics(lock)
@@ -367,10 +373,12 @@ def _load_verified_state(repo: Path) -> VerifiedState:
         if lock["files"][raw] != sha256_bytes(file.content):
             raise PolicyError(f"policy lock render checksum mismatch: {raw}")
 
-    policy = validate_policy(snapshot_files)
+    policy = validate_policy(snapshot_files, expected_protocol=lock["protocol_version"])
+    if policy["schema_version"] != lock["schema_version"]:
+        raise PolicyError("policy snapshot schema differs from the policy lock")
     if policy["policy_version"] != lock["version"]:
         raise PolicyError("policy snapshot version differs from the policy lock")
-    validate_migrations(snapshot_files)
+    validate_migrations(snapshot_files, protocol_version=lock["protocol_version"])
     validate_adapters(snapshot_files)
     return VerifiedState(lock, snapshot_files, expected_outputs, policy)
 

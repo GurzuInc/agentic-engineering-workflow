@@ -29,6 +29,13 @@ _NETWORK_IDLE_TIMEOUT = 5
 _METADATA_DEADLINE = 30
 _ASSET_DEADLINE = 60
 _SUPPORTED_PYTHON = ["3.11", "3.12", "3.13", "3.14"]
+_RELEASE_PROTOCOLS = {
+    1: {"schema_version": 1, "adapter_validation": {"codex": "validated", "claude": "pending"}},
+    2: {
+        "schema_version": 2,
+        "adapter_validation": {"codex": "validated", "claude": "validated"},
+    },
+}
 _RECOVERY = {
     "original_source_commit": "eb79ceb19b1e82ac5f504170ab56abc20e4f484a",
     "original_source_is_ancestor": False,
@@ -80,7 +87,7 @@ class ReleaseClient:
             _verify_release(tag, *(paths[name] for name in sorted(required)))
             bundle_path = paths[bundle_name]
             pyz_path = paths[pyz_name]
-            _validate_release_artifacts(
+            release_contract = _validate_release_artifacts(
                 version,
                 tag,
                 bundle_path,
@@ -91,6 +98,13 @@ class ReleaseClient:
             bundle = Bundle.load(bundle_path)
             if bundle.version != str(version):
                 raise PolicyError("downloaded bundle version differs from requested release")
+            if (
+                bundle.manifest["schema_version"] != release_contract["schema_version"]
+                or bundle.manifest["protocol_version"] != release_contract["protocol_version"]
+            ):
+                raise PolicyError(
+                    "downloaded bundle schema or protocol differs from the release manifest"
+                )
             if bundle.files.get("bin/policyctl.pyz") != pyz_path.read_bytes():
                 raise PolicyError(
                     "standalone updater differs from the updater embedded in the bundle"
@@ -105,7 +119,7 @@ def _validate_release_artifacts(
     pyz: Path,
     release_manifest: Path,
     checksums: Path,
-) -> None:
+) -> dict:
     expected_checksums = {
         bundle.name: hashlib.sha256(bundle.read_bytes()).hexdigest(),
         pyz.name: hashlib.sha256(pyz.read_bytes()).hexdigest(),
@@ -148,15 +162,18 @@ def _validate_release_artifacts(
     if not isinstance(manifest, dict) or set(manifest) != expected_keys:
         raise PolicyError("release manifest has unknown or missing fields")
     expected_channel = "stable" if version.stable else "prerelease"
+    protocol_version = manifest.get("protocol_version")
+    release_protocol = _RELEASE_PROTOCOLS.get(protocol_version)
     if (
-        manifest["schema_version"] != 1
-        or manifest["protocol_version"] != 1
+        release_protocol is None
+        or manifest["schema_version"] != release_protocol["schema_version"]
+        or version.major != protocol_version
         or manifest["repository"] != SOURCE_REPOSITORY
         or manifest["version"] != str(version)
         or manifest["tag"] != tag
         or manifest["channel"] != expected_channel
         or manifest["supported_adapters"] != ["codex", "claude"]
-        or manifest["adapter_validation"] != {"codex": "validated", "claude": "pending"}
+        or manifest["adapter_validation"] != release_protocol["adapter_validation"]
         or manifest["supported_python"] != _SUPPORTED_PYTHON
         or manifest["recovery"] != _RECOVERY
     ):
@@ -169,6 +186,7 @@ def _validate_release_artifacts(
     commit = _resolve_annotated_tag_commit(tag)
     if manifest["source_commit"] != commit:
         raise PolicyError("release manifest source commit differs from the annotated tag")
+    return manifest
 
 
 def _resolve_annotated_tag_commit(tag: str) -> str:

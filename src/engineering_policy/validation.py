@@ -11,10 +11,9 @@ import fastjsonschema
 import yaml
 
 from engineering_policy.constants import (
-    PROTOCOL_VERSION,
-    SCHEMA_VERSION,
     SOURCE_REPOSITORY,
-    TRUSTED_SCHEMA_SHA256,
+    SUPPORTED_SCHEMA_PROTOCOLS,
+    TRUSTED_SCHEMA_SETS_SHA256,
 )
 from engineering_policy.errors import PolicyError
 from engineering_policy.semver import Version
@@ -47,18 +46,23 @@ def validate_with_schema(instance: dict[str, Any], schema: dict[str, Any], label
         raise PolicyError(f"{label} schema violation: {exc.message}") from exc
 
 
-def validate_policy(files: dict[str, bytes]) -> dict[str, Any]:
-    validate_trusted_schemas(files)
+def validate_policy(
+    files: dict[str, bytes], *, expected_protocol: int | None = None
+) -> dict[str, Any]:
     policy_path = "spec/policy.yaml" if "spec/policy.yaml" in files else "policy.yaml"
     required = {policy_path, "schemas/policy.schema.json"}
     missing = required - files.keys()
     if missing:
         raise PolicyError(f"bundle is missing policy inputs: {', '.join(sorted(missing))}")
     policy = load_yaml_bytes(files[policy_path], policy_path)
+    protocol_version = policy.get("protocol_version")
+    schema_version = policy.get("schema_version")
+    _validate_supported_schema_protocol(schema_version, protocol_version, label="policy")
+    if expected_protocol is not None and protocol_version != expected_protocol:
+        raise PolicyError("policy protocol differs from the bundle manifest")
+    validate_trusted_schemas(files, protocol_version=protocol_version)
     schema = load_json_bytes(files["schemas/policy.schema.json"], "policy schema")
     validate_with_schema(policy, schema, "policy")
-    if policy["protocol_version"] != PROTOCOL_VERSION:
-        raise PolicyError("policy protocol is incompatible with this updater")
     if policy["canonical_repository"] != SOURCE_REPOSITORY:
         raise PolicyError("policy repository identity is not canonical")
     version = Version.parse(policy["policy_version"])
@@ -79,7 +83,14 @@ def validate_policy(files: dict[str, bytes]) -> dict[str, Any]:
     return policy
 
 
-def validate_migrations(files: dict[str, bytes]) -> None:
+def validate_migrations(files: dict[str, bytes], *, protocol_version: int | None = None) -> None:
+    if protocol_version is None:
+        policy_path = "spec/policy.yaml" if "spec/policy.yaml" in files else "policy.yaml"
+        if policy_path not in files:
+            raise PolicyError("bundle is missing policy inputs")
+        protocol_version = load_yaml_bytes(files[policy_path], policy_path).get("protocol_version")
+    if protocol_version not in TRUSTED_SCHEMA_SETS_SHA256:
+        raise PolicyError("migration protocol is incompatible with this updater")
     schema_path = "schemas/migration.schema.json"
     if schema_path not in files:
         raise PolicyError("bundle is missing the migration schema")
@@ -96,7 +107,7 @@ def validate_migrations(files: dict[str, bytes]) -> None:
         if migration["from_protocol"] != expected_from:
             raise PolicyError(f"migration chain is broken at {name}")
         expected_from = migration["to_protocol"]
-    if expected_from != PROTOCOL_VERSION:
+    if expected_from != protocol_version:
         raise PolicyError("migration chain does not resolve to the supported protocol")
 
 
@@ -230,7 +241,11 @@ def validate_overlay(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
         raise PolicyError("overlay schema is missing from the policy snapshot")
     overlay = load_yaml_bytes(overlay_path.read_bytes(), str(overlay_path))
     schema = load_json_bytes(schema_path.read_bytes(), str(schema_path))
-    validate_trusted_schema(schema_path.read_bytes(), "schemas/overlay.schema.json")
+    validate_trusted_schema(
+        schema_path.read_bytes(),
+        "schemas/overlay.schema.json",
+        protocol_version=policy["protocol_version"],
+    )
     validate_with_schema(overlay, schema, "project overlay")
     canonical = {item["id"] for item in policy["canonical_policies"]}
     for item in overlay.get("additional_policies", []):
@@ -242,16 +257,25 @@ def validate_overlay(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
     return overlay
 
 
-def validate_trusted_schemas(files: dict[str, bytes]) -> None:
-    missing = sorted(set(TRUSTED_SCHEMA_SHA256) - files.keys())
-    if missing:
-        raise PolicyError(f"policy snapshot is missing trusted schemas: {', '.join(missing)}")
-    for name in TRUSTED_SCHEMA_SHA256:
-        validate_trusted_schema(files[name], name)
+def validate_trusted_schemas(files: dict[str, bytes], *, protocol_version: int) -> None:
+    expected = TRUSTED_SCHEMA_SETS_SHA256.get(protocol_version)
+    if expected is None:
+        raise PolicyError("policy protocol is incompatible with this updater")
+    actual = {name for name in files if name.startswith("schemas/")}
+    missing = sorted(set(expected) - actual)
+    unexpected = sorted(actual - set(expected))
+    if missing or unexpected:
+        raise PolicyError(
+            f"policy snapshot trusted schema set mismatch; missing={missing}, "
+            f"unexpected={unexpected}"
+        )
+    for name in expected:
+        validate_trusted_schema(files[name], name, protocol_version=protocol_version)
 
 
-def validate_trusted_schema(content: bytes, name: str) -> None:
-    expected = TRUSTED_SCHEMA_SHA256.get(name)
+def validate_trusted_schema(content: bytes, name: str, *, protocol_version: int) -> None:
+    schema_set = TRUSTED_SCHEMA_SETS_SHA256.get(protocol_version)
+    expected = schema_set.get(name) if schema_set is not None else None
     if expected is None or hashlib.sha256(content).hexdigest() != expected:
         raise PolicyError(f"candidate attempted to replace trusted protocol schema: {name}")
 
@@ -267,15 +291,16 @@ def validate_manifest_shape(manifest: dict[str, Any]) -> None:
     }
     if set(manifest) != expected:
         raise PolicyError("bundle manifest has unknown or missing fields")
-    if manifest["schema_version"] != SCHEMA_VERSION:
-        raise PolicyError("bundle schema is unsupported")
-    if manifest["protocol_version"] != PROTOCOL_VERSION:
-        raise PolicyError("bundle protocol is incompatible; manual re-bootstrap is required")
+    _validate_supported_schema_protocol(
+        manifest["schema_version"], manifest["protocol_version"], label="bundle"
+    )
     if manifest["repository"] != SOURCE_REPOSITORY:
         raise PolicyError("bundle repository identity is not canonical")
     version = Version.parse(manifest["version"])
     if manifest["version"] != str(version):
         raise PolicyError("bundle version is not canonical")
+    if version.major != manifest["protocol_version"]:
+        raise PolicyError("bundle version major does not match its protocol")
     channel = manifest["channel"]
     if not isinstance(channel, str) or channel not in {"stable", "prerelease"}:
         raise PolicyError("bundle channel is invalid")
@@ -283,3 +308,21 @@ def validate_manifest_shape(manifest: dict[str, Any]) -> None:
         raise PolicyError("bundle channel does not match its version")
     if not isinstance(manifest["files"], list) or not manifest["files"]:
         raise PolicyError("bundle manifest files must be a non-empty list")
+
+
+def _validate_supported_schema_protocol(
+    schema_version: object, protocol_version: object, *, label: str
+) -> None:
+    if not isinstance(schema_version, int) or schema_version not in SUPPORTED_SCHEMA_PROTOCOLS:
+        raise PolicyError(f"{label} schema is unsupported")
+    if (
+        not isinstance(protocol_version, int)
+        or protocol_version not in TRUSTED_SCHEMA_SETS_SHA256
+        or SUPPORTED_SCHEMA_PROTOCOLS[schema_version] != protocol_version
+    ):
+        if label == "bundle":
+            raise PolicyError(
+                "bundle protocol is incompatible; manual re-bootstrap or an explicit major "
+                "update is required"
+            )
+        raise PolicyError(f"{label} protocol is incompatible with this updater")
