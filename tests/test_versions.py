@@ -33,17 +33,11 @@ def test_prerelease_channel_selects_latest_within_major() -> None:
 
 
 def test_automatic_major_upgrade_is_blocked_but_explicit_selection_is_allowed(
-    git_repo: Path, valid_bundle: Bundle, release_bundle: Path, mutate_bundle
+    git_repo: Path, valid_bundle: Bundle, v2_bundle: Path
 ) -> None:
     initialize(git_repo, valid_bundle, ("codex",))
     commit_all(git_repo)
-    candidate = Bundle.load(
-        mutate_bundle(
-            release_bundle,
-            version="2.0.0-rc.1",
-            channel="prerelease",
-        )
-    )
+    candidate = Bundle.load(v2_bundle)
     with pytest.raises(PolicyError, match="cannot cross"):
         apply_update(git_repo, candidate, explicit_version=False)
     apply_update(git_repo, candidate, explicit_version=True)

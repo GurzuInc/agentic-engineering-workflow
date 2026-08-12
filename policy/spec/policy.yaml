@@ -1,6 +1,6 @@
 schema_version: 1
 protocol_version: 1
-policy_version: 1.0.0
+policy_version: 1.0.1
 canonical_repository: GurzuInc/agentic-engineering-workflow
 client_minimums:
   codex: 0.147.0

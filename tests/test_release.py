@@ -276,11 +276,13 @@ def test_metadata_response_size_is_bounded(monkeypatch: pytest.MonkeyPatch) -> N
         _request_json("https://api.github.com/repos/example/releases")
 
 
-def _release_artifacts(tmp_path: Path) -> tuple[Version, str, Path, Path, Path, Path, str]:
-    version = Version.parse("1.0.0-rc.3")
-    tag = "v1.0.0-rc.3"
+def _release_artifacts(
+    tmp_path: Path, *, raw_version: str = "1.0.0-rc.3"
+) -> tuple[Version, str, Path, Path, Path, Path, str]:
+    version = Version.parse(raw_version)
+    tag = f"v{version}"
     commit = "0123456789abcdef0123456789abcdef01234567"
-    bundle = tmp_path / "engineering-policy-1.0.0-rc.3.zip"
+    bundle = tmp_path / f"engineering-policy-{version}.zip"
     pyz = tmp_path / "policyctl.pyz"
     release_manifest = tmp_path / "release-manifest.json"
     checksums = tmp_path / "SHA256SUMS"
@@ -291,8 +293,8 @@ def _release_artifacts(tmp_path: Path) -> tuple[Version, str, Path, Path, Path, 
         pyz.name: hashlib.sha256(pyz.read_bytes()).hexdigest(),
     }
     manifest = {
-        "schema_version": 1,
-        "protocol_version": 1,
+        "schema_version": version.major,
+        "protocol_version": version.major,
         "repository": "GurzuInc/agentic-engineering-workflow",
         "version": str(version),
         "tag": tag,
@@ -300,7 +302,10 @@ def _release_artifacts(tmp_path: Path) -> tuple[Version, str, Path, Path, Path, 
         "source_commit": commit,
         "asset_digests": digests,
         "supported_adapters": ["codex", "claude"],
-        "adapter_validation": {"codex": "validated", "claude": "pending"},
+        "adapter_validation": {
+            "codex": "validated",
+            "claude": "pending" if version.major == 1 else "validated",
+        },
         "supported_python": ["3.11", "3.12", "3.13", "3.14"],
         "recovery": {
             "original_source_commit": "eb79ceb19b1e82ac5f504170ab56abc20e4f484a",
@@ -341,6 +346,16 @@ def test_release_artifact_contract_binds_checksums_manifest_and_annotated_tag(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     artifacts = _release_artifacts(tmp_path)
+    monkeypatch.setattr(
+        "engineering_policy.release._resolve_annotated_tag_commit", lambda _tag: artifacts[-1]
+    )
+    _validate_release_artifacts(*artifacts[:-1])
+
+
+def test_release_artifact_contract_accepts_reviewed_v2_contract(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    artifacts = _release_artifacts(tmp_path, raw_version="2.0.0-rc.1")
     monkeypatch.setattr(
         "engineering_policy.release._resolve_annotated_tag_commit", lambda _tag: artifacts[-1]
     )
@@ -522,5 +537,26 @@ def test_verified_bundle_rejects_standalone_updater_that_differs_from_bundle(
     )
     _mock_release_downloads(monkeypatch, assets)
     with pytest.raises(PolicyError, match="standalone updater differs"):
+        with ReleaseClient().verified_bundle(Version.parse("1.0.0-rc.3")):
+            pass
+
+
+def test_verified_bundle_cross_binds_outer_and_inner_protocol(
+    monkeypatch: pytest.MonkeyPatch, release_bundle: Path
+) -> None:
+    assets = {path.name: path for path in release_bundle.parent.iterdir()}
+    _mock_release_downloads(monkeypatch, assets)
+    original = _validate_release_artifacts
+
+    def mismatched_contract(*args, **kwargs):
+        contract = original(*args, **kwargs)
+        contract["schema_version"] = 2
+        contract["protocol_version"] = 2
+        return contract
+
+    monkeypatch.setattr(
+        "engineering_policy.release._validate_release_artifacts", mismatched_contract
+    )
+    with pytest.raises(PolicyError, match="differs from the release manifest"):
         with ReleaseClient().verified_bundle(Version.parse("1.0.0-rc.3")):
             pass

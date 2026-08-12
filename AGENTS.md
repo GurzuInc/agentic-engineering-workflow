@@ -7,10 +7,11 @@
 - Treat generated `dist/` contents as local evidence only. Never edit or commit them as source.
 - Do not enroll this repository into its own unpublished policy snapshot. Root `AGENTS.md` is repository governance, not a generated consumer adapter.
 - Version 1.0 supports Codex and Claude adapters. Codex is live-validated; Claude live-client validation is explicitly pending follow-up.
+- Version 1.0.1 remains a protocol-v1 release and is the trusted bridge for explicit upgrades to the complete reviewed protocol-v2 schema set. It does not claim Claude validation or v2 general availability.
 
 ## Change discipline
 
-- Preserve protocol and schema version 1 unless an explicitly approved compatibility design includes the migration and trusted-updater transition.
+- Preserve the released protocol/schema version unless an explicitly approved compatibility design includes the migration and trusted-updater transition. Every supported protocol must match one complete embedded trusted-schema digest set.
 - Keep public CLI commands and flags backward compatible except where a reviewed release plan explicitly removes an unsafe interface.
 - Candidate bundles may change only the exact declarative allowlist. They must never change consumer workflows, CODEOWNERS, project overlays, Git metadata, or paths outside the managed namespace.
 - Never execute a candidate updater. The already-trusted consumer updater verifies and copies candidate bytes.

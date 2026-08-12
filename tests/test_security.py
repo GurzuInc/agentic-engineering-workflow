@@ -7,12 +7,14 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 import pytest
+import yaml
 from conftest import commit_all
 
 from engineering_policy.bundle import Bundle
 from engineering_policy.errors import PolicyError
 from engineering_policy.operations import apply_update, initialize
 from engineering_policy.release import _verify_release
+from engineering_policy.rendering import check_repository, load_lock
 from engineering_policy.repository import atomic_write
 
 
@@ -88,6 +90,51 @@ def test_candidate_cannot_loosen_trusted_protocol_schema(
     )
     with pytest.raises(PolicyError, match="replace trusted protocol schema"):
         Bundle.load(malicious)
+
+
+def test_bridge_accepts_only_the_complete_reviewed_v2_schema_set(v2_bundle: Path) -> None:
+    bundle = Bundle.load(v2_bundle)
+    assert bundle.manifest["schema_version"] == 2
+    assert bundle.manifest["protocol_version"] == 2
+
+
+def test_bridge_rejects_mixed_v1_and_v2_schema_sets(
+    v2_bundle: Path, mutate_bundle, project_root: Path
+) -> None:
+    malicious = mutate_bundle(
+        v2_bundle,
+        replacements={
+            "schemas/policy.schema.json": (
+                project_root / "policy/schemas/policy.schema.json"
+            ).read_bytes()
+        },
+    )
+    with pytest.raises(PolicyError, match="replace trusted protocol schema"):
+        Bundle.load(malicious)
+
+
+def test_bridge_rejects_unexpected_schema_in_otherwise_valid_v2_set(
+    v2_bundle: Path, mutate_bundle
+) -> None:
+    malicious = mutate_bundle(
+        v2_bundle,
+        additions={"schemas/unreviewed.schema.json": (b"{}\n", 0o644)},
+    )
+    with pytest.raises(PolicyError, match="trusted schema set mismatch"):
+        Bundle.load(malicious)
+
+
+def test_explicit_major_update_uses_bridge_without_executing_candidate_updater(
+    git_repo: Path, valid_bundle: Bundle, v2_bundle: Path
+) -> None:
+    initialize(git_repo, valid_bundle, ("codex",))
+    commit_all(git_repo)
+    candidate = Bundle.load(v2_bundle)
+    with pytest.raises(PolicyError, match="automatic updates cannot cross"):
+        apply_update(git_repo, candidate, explicit_version=False)
+    apply_update(git_repo, candidate, explicit_version=True)
+    assert load_lock(git_repo)["protocol_version"] == 2
+    assert check_repository(git_repo) == []
 
 
 def test_broken_migration_chain_is_rejected(release_bundle: Path, mutate_bundle) -> None:
@@ -194,6 +241,58 @@ def test_manifest_identity_and_protocol_fail_closed(
 ) -> None:
     malicious = mutate_bundle(release_bundle, manifest_updates=updates)
     with pytest.raises(PolicyError, match=message):
+        Bundle.load(malicious)
+
+
+@pytest.mark.parametrize(
+    ("version", "protocol", "schema"),
+    [
+        ("1.0.1", 2, 2),
+        ("2.0.0", 1, 1),
+    ],
+)
+def test_bundle_version_major_must_match_protocol(
+    release_bundle: Path,
+    mutate_bundle,
+    project_root: Path,
+    version: str,
+    protocol: int,
+    schema: int,
+) -> None:
+    replacements = {}
+    if protocol == 2:
+        policy = yaml.safe_load((project_root / "policy/spec/policy.yaml").read_text())
+        policy.update(
+            {
+                "schema_version": 2,
+                "protocol_version": 2,
+                "policy_version": version,
+                "client_minimums": {"codex": "0.0.0", "claude": "0.0.0"},
+                "adapter_validation": {"codex": "validated", "claude": "validated"},
+            }
+        )
+        migration_0001 = json.loads(
+            (project_root / "policy/migrations/0001-initial.json").read_text()
+        )
+        migration_0001["schema_version"] = 2
+        replacements = {
+            "spec/policy.yaml": yaml.safe_dump(policy, sort_keys=False).encode(),
+            "migrations/0001-initial.json": (
+                json.dumps(migration_0001, indent=2, sort_keys=True) + "\n"
+            ).encode(),
+            **{
+                f"schemas/{path.name}": path.read_bytes()
+                for path in sorted((project_root / "policy/trusted-schemas/v2").glob("*.json"))
+            },
+        }
+    malicious = mutate_bundle(
+        release_bundle,
+        replacements=replacements,
+        version=version,
+        channel="stable",
+        manifest_updates={"schema_version": schema, "protocol_version": protocol},
+    )
+    with pytest.raises(PolicyError, match="version major does not match"):
         Bundle.load(malicious)
 
 

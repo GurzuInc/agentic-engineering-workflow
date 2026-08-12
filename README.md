@@ -45,6 +45,15 @@ Codex version is `0.147.0`. Claude adapter installation is supported, while live
 Claude client validation remains explicit pending follow-up. Supported Python
 versions are 3.11 through 3.14.
 
+Version 1.0.1 is the protocol bridge for explicit major updates. Its released
+bundle remains schema/protocol v1 and keeps Claude validation `pending`. The
+already-trusted updater embeds two complete, exact schema-digest sets: the
+released v1 set and the reviewed v2 set in `policy/trusted-schemas/v2`. It
+accepts a v2 candidate only when the manifest, policy, migration chain, release
+contract, and every schema byte match the reviewed v2 contract. Automatic
+updates remain pinned to the enrolled major, and candidate updater bytes are
+verified and copied without execution.
+
 `--adopt-existing` is not supported because its implicit guidance and ownership
 rewrites are outside this release contract.
 
@@ -61,6 +70,11 @@ The updater requires a published immutable release, one unique copy of every
 asset, checksum and manifest agreement, an annotated tag bound to the manifest's
 exact source commit, GitHub-hosted release-workflow attestations for every asset,
 and byte identity between the standalone and embedded updater.
+
+A stable tag must point to the exact passing RC source commit and include
+`Promotes: <exact-rc-tag>` in its annotation. Before publishing stable, the
+release workflow verifies the immutable RC release, all four assets, checksums,
+build attestations, source commit, and the exact recorded RC smoke result.
 
 Release assets and consumer enrollment remain gated until source, deterministic
 build, release integrity, attestation, clean-install, and live Codex validation

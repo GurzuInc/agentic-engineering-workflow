@@ -90,8 +90,43 @@ jobs:
       - name: Require stable promotion evidence
         if: ${{ !contains(github.ref_name, '-') }}
         env:
+          GH_TOKEN: ${{ github.token }}
           RC_SMOKE_RESULT: ${{ vars.RC_SMOKE_RESULT }}
-        run: test "$RC_SMOKE_RESULT" = "v1.0.0-rc.3:pass:$GITHUB_SHA"
+        run: |
+          annotation="$(git for-each-ref --format='%(contents)' "$GITHUB_REF")"
+          rc_tag="$(sed -n 's/^Promotes: \(v[0-9][0-9.]*-rc\.[1-9][0-9]*\)$/\1/p' <<< "$annotation")"
+          test "$(wc -l <<< "$rc_tag" | tr -d ' ')" = 1
+          test -n "$rc_tag"
+          stable_version="${GITHUB_REF_NAME#v}"
+          test "$rc_tag" != "$GITHUB_REF_NAME"
+          [[ "$rc_tag" == "v${stable_version}-rc."* ]]
+          test "$RC_SMOKE_RESULT" = "$rc_tag:pass:$GITHUB_SHA"
+
+          git fetch --no-tags origin "refs/tags/$rc_tag:refs/tags/$rc_tag"
+          test "$(git cat-file -t "refs/tags/$rc_tag")" = tag
+          test "$(git rev-parse "refs/tags/$rc_tag^{commit}")" = "$GITHUB_SHA"
+          test "$(gh release view "$rc_tag" --json tagName,isDraft,isPrerelease --jq '[.tagName, .isDraft, .isPrerelease] | @tsv')" = "$rc_tag"$'\t'false$'\t'true
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$rc_tag" --jq .immutable)" = true
+          gh release verify "$rc_tag" --repo "$GITHUB_REPOSITORY"
+
+          mkdir rc-assets
+          gh release download "$rc_tag" --repo "$GITHUB_REPOSITORY" --dir rc-assets
+          test "$(find rc-assets -maxdepth 1 -type f | wc -l | tr -d ' ')" = 4
+          test -f "rc-assets/engineering-policy-${rc_tag#v}.zip"
+          test -f rc-assets/policyctl.pyz
+          test -f rc-assets/release-manifest.json
+          test -f rc-assets/SHA256SUMS
+          (cd rc-assets && sha256sum --check SHA256SUMS)
+          test "$(jq -r .tag rc-assets/release-manifest.json)" = "$rc_tag"
+          test "$(jq -r .source_commit rc-assets/release-manifest.json)" = "$GITHUB_SHA"
+          for asset in rc-assets/*; do
+            gh release verify-asset "$rc_tag" "$asset" --repo "$GITHUB_REPOSITORY"
+            gh attestation verify "$asset" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --source-ref "refs/tags/$rc_tag" \
+              --deny-self-hosted-runners
+          done
       - name: Require recorded immutable-release preflight
         env:
           IMMUTABLE_RELEASES_ENABLED: ${{ vars.IMMUTABLE_RELEASES_ENABLED }}
@@ -122,7 +157,10 @@ jobs:
             if [[ "$GITHUB_REF_NAME" == *-* ]]; then
               echo "RC smoke result: pending post-publication validation."
             else
-              echo "RC smoke result: v1.0.0-rc.3 passed release, clean-install, doctor, and live Codex workflow validation; Claude validation remains pending."
+              annotation="$(git for-each-ref --format='%(contents)' "$GITHUB_REF")"
+              rc_tag="$(sed -n 's/^Promotes: //p' <<< "$annotation")"
+              echo "Promotes: $rc_tag"
+              echo "RC smoke result: $rc_tag passed release, clean-install, update, rollback, check, render, doctor, and live Codex workflow validation; Claude validation remains pending."
             fi
             echo
             echo "Asset digests:"
