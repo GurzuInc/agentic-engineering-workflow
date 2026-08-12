@@ -1,6 +1,6 @@
-schema_version: 1
-protocol_version: 1
-policy_version: 1.0.2
+schema_version: 2
+protocol_version: 2
+policy_version: 2.0.0
 canonical_repository: GurzuInc/agentic-engineering-workflow
 client_minimums:
   codex: 0.147.0
@@ -8,6 +8,12 @@ adapter_validation:
   codex: validated
   claude: pending
 canonical_policies:
+  - id: workflow.scope.independent
+    statement: The workflow is independent organization-level engineering tooling, never a consumer-product module, feature, architecture component, authority, dependency, or acceptance gate.
+  - id: workflow.scope.consumer-boundary
+    statement: Repository enrollment installs engineering guidance only and does not authorize consumer-product changes.
+  - id: workflow.controls.proportionate
+    statement: Do not introduce 2FA, access-policy, compliance, infrastructure, production hardening, or other controls unless explicitly requested or required by the actual task.
   - id: workflow.scope.preflight
     statement: Read applicable repository guidance and report branch, HEAD, and dirty state before mutation.
   - id: workflow.plan.read-only

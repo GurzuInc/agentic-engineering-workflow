@@ -21,6 +21,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Fetch the exact immutable v1.0.2 bridge fixture
+        run: |
+          git fetch --no-tags --depth=1 origin refs/tags/v1.0.2:refs/tags/v1.0.2
+          test "$(git rev-parse 'v1.0.2^{commit}')" = 07e4190e65191eba762a79d5ede0be0cadecf060
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -182,11 +184,7 @@ def test_bridge_rejects_mixed_v1_and_v2_schema_sets(
 ) -> None:
     malicious = mutate_bundle(
         v2_bundle,
-        replacements={
-            "schemas/policy.schema.json": (
-                project_root / "policy/schemas/policy.schema.json"
-            ).read_bytes()
-        },
+        replacements={"schemas/policy.schema.json": b"{}\n"},
     )
     with pytest.raises(PolicyError, match="replace trusted protocol schema"):
         Bundle.load(malicious)
@@ -204,15 +202,95 @@ def test_bridge_rejects_unexpected_schema_in_otherwise_valid_v2_set(
 
 
 def test_explicit_major_update_uses_bridge_without_executing_candidate_updater(
-    git_repo: Path, valid_bundle: Bundle, v2_bundle: Path
+    git_repo: Path,
+    v1_bundle: Path,
+    v2_stable_bundle: Path,
+    mutate_bundle,
+    tmp_path: Path,
 ) -> None:
-    initialize(git_repo, valid_bundle, ("codex",))
-    commit_all(git_repo)
-    candidate = Bundle.load(v2_bundle)
-    with pytest.raises(PolicyError, match="automatic updates cannot cross"):
-        apply_update(git_repo, candidate, explicit_version=False)
-    apply_update(git_repo, candidate, explicit_version=True)
-    assert load_lock(git_repo)["protocol_version"] == 2
+    initialize(git_repo, Bundle.load(v1_bundle), ("codex",))
+    overlay = git_repo / "engineering-policy.project.yaml"
+    original_overlay = overlay.read_text(encoding="utf-8") + "# v1 repository overlay\n"
+    overlay.write_text(original_overlay, encoding="utf-8")
+    commit_all(git_repo, "chore: enroll immutable v1.0.2 fixture")
+
+    updater = git_repo / ".engineering-policy/bin/policyctl.pyz"
+    assert hashlib.sha256(updater.read_bytes()).hexdigest() == (
+        "303306fcf78442725e0ccc6b27972f46361d998238e9419e672f52cb8cacd583"
+    )
+    marker = tmp_path / "v2-candidate-executed"
+    candidate_program = (
+        "#!/usr/bin/env python3\n"
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('executed')\n"
+    ).encode()
+    candidate_path = mutate_bundle(
+        v2_stable_bundle,
+        replacements={"bin/policyctl.pyz": candidate_program},
+        version="2.0.0",
+        channel="stable",
+    )
+
+    shim = tmp_path / "release-shim"
+    shim.mkdir()
+    (shim / "sitecustomize.py").write_text(
+        """from __future__ import annotations
+
+import contextlib
+import os
+from pathlib import Path
+
+import engineering_policy.cli as cli
+from engineering_policy.bundle import Bundle
+from engineering_policy.semver import Version
+
+
+class FixtureReleaseClient:
+    def resolve_latest(self, **_kwargs):
+        return Version.parse(os.environ["POLICYCTL_TEST_VERSION"])
+
+    @contextlib.contextmanager
+    def verified_bundle(self, version):
+        bundle = Bundle.load(Path(os.environ["POLICYCTL_TEST_BUNDLE"]))
+        if bundle.version != str(version):
+            raise RuntimeError("fixture version mismatch")
+        yield bundle
+
+
+cli.ReleaseClient = FixtureReleaseClient
+""",
+        encoding="utf-8",
+    )
+    git = shutil.which("git")
+    assert git is not None
+    environment = {
+        "PATH": str(Path(git).parent),
+        "PYTHONPATH": str(shim),
+        "POLICYCTL_TEST_BUNDLE": str(candidate_path),
+        "POLICYCTL_TEST_VERSION": "2.0.0",
+    }
+    command = [sys.executable, str(updater), "update", "--repo", str(git_repo)]
+    automatic = subprocess.run(command, capture_output=True, text=True, env=environment)
+    assert automatic.returncode == 2
+    assert "automatic updates cannot cross" in automatic.stderr
+    assert not marker.exists()
+
+    explicit = subprocess.run(
+        [*command, "--version", "2.0.0"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    assert explicit.stdout.startswith("OK updated to 2.0.0")
+    assert not marker.exists()
+    assert updater.read_bytes() == candidate_program
+    lock = load_lock(git_repo)
+    assert lock["version"] == "2.0.0"
+    assert lock["protocol_version"] == 2
+    assert lock["constraint"] == "2.x"
+    assert lock["adapters"] == ["codex"]
+    assert overlay.read_text(encoding="utf-8") == original_overlay
     assert check_repository(git_repo) == []
 
 
@@ -378,7 +456,7 @@ def test_bundle_version_major_must_match_protocol(
 def test_manifest_and_policy_versions_must_agree(release_bundle: Path, mutate_bundle) -> None:
     malicious = mutate_bundle(
         release_bundle,
-        manifest_updates={"version": "1.0.0-rc.4"},
+        manifest_updates={"version": "2.0.0-rc.2"},
     )
     with pytest.raises(PolicyError, match="policy version differs"):
         Bundle.load(malicious)
@@ -517,7 +595,7 @@ def test_candidate_updater_is_copied_but_never_executed(
     candidate_path = mutate_bundle(
         release_bundle,
         replacements={"bin/policyctl.pyz": candidate_program},
-        version="1.0.0-rc.3",
+        version="2.0.0-rc.1",
         channel="prerelease",
     )
     apply_update(git_repo, Bundle.load(candidate_path), explicit_version=False)
@@ -534,7 +612,7 @@ def test_update_refuses_dirty_worktree(
     candidate = Bundle.load(
         mutate_bundle(
             release_bundle,
-            version="1.0.0-rc.3",
+            version="2.0.0-rc.1",
             channel="prerelease",
         )
     )

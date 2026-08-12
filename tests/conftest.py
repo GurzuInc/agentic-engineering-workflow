@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import zipfile
@@ -12,6 +13,11 @@ import pytest
 import yaml
 
 from engineering_policy.bundle import Bundle
+
+_V1_TAG = "v1.0.2"
+_V1_SOURCE_COMMIT = "07e4190e65191eba762a79d5ede0be0cadecf060"
+_V1_BUNDLE_SHA256 = "fa9651309a637a87ab04aa549751d40ca41c0b8ab8cafe3fb0b1db4c15784d4c"
+_V1_UPDATER_SHA256 = "303306fcf78442725e0ccc6b27972f46361d998238e9419e672f52cb8cacd583"
 
 
 @pytest.fixture(scope="session")
@@ -29,7 +35,7 @@ def release_bundle(tmp_path_factory: pytest.TempPathFactory, project_root: Path)
             "--output-dir",
             str(output),
             "--version",
-            "1.0.0-rc.3",
+            "2.0.0-rc.1",
             "--source-commit",
             "0123456789abcdef0123456789abcdef01234567",
         ],
@@ -38,7 +44,7 @@ def release_bundle(tmp_path_factory: pytest.TempPathFactory, project_root: Path)
         capture_output=True,
         text=True,
     )
-    return output / "engineering-policy-1.0.0-rc.3.zip"
+    return output / "engineering-policy-2.0.0-rc.1.zip"
 
 
 @pytest.fixture
@@ -46,51 +52,74 @@ def valid_bundle(release_bundle: Path) -> Bundle:
     return Bundle.load(release_bundle)
 
 
+@pytest.fixture(scope="session")
+def v1_release_assets(tmp_path_factory: pytest.TempPathFactory, project_root: Path) -> Path:
+    fixture_root = tmp_path_factory.mktemp("v1-release")
+    source = fixture_root / "source"
+    source.mkdir()
+    source_archive = fixture_root / "source.tar"
+    resolved = subprocess.check_output(
+        ["git", "rev-parse", f"{_V1_TAG}^{{commit}}"],
+        cwd=project_root,
+        text=True,
+    ).strip()
+    assert resolved == _V1_SOURCE_COMMIT
+    subprocess.run(
+        ["git", "archive", "--format=tar", "--output", str(source_archive), _V1_TAG],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["tar", "-xf", str(source_archive), "-C", str(source)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    output = fixture_root / "dist"
+    subprocess.run(
+        [
+            sys.executable,
+            str(source / "scripts/build_release.py"),
+            "--output-dir",
+            str(output),
+            "--version",
+            "1.0.2",
+            "--source-commit",
+            _V1_SOURCE_COMMIT,
+        ],
+        cwd=source,
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "PYTHONPATH": str(source / "src"),
+        },
+    )
+    bundle = output / "engineering-policy-1.0.2.zip"
+    updater = output / "policyctl.pyz"
+    assert hashlib.sha256(bundle.read_bytes()).hexdigest() == _V1_BUNDLE_SHA256
+    assert hashlib.sha256(updater.read_bytes()).hexdigest() == _V1_UPDATER_SHA256
+    with zipfile.ZipFile(bundle) as archive:
+        assert hashlib.sha256(archive.read("bin/policyctl.pyz")).hexdigest() == _V1_UPDATER_SHA256
+    return output
+
+
+@pytest.fixture(scope="session")
+def v1_bundle(v1_release_assets: Path) -> Path:
+    return v1_release_assets / "engineering-policy-1.0.2.zip"
+
+
 @pytest.fixture
 def v2_bundle(release_bundle: Path, mutate_bundle, project_root: Path) -> Path:
-    policy = yaml.safe_load((project_root / "policy/spec/policy.yaml").read_text())
-    policy.update(
-        {
-            "schema_version": 2,
-            "protocol_version": 2,
-            "policy_version": "2.0.0",
-            "client_minimums": {"codex": "0.147.0"},
-            "adapter_validation": {"codex": "validated", "claude": "pending"},
-        }
-    )
-    migration_0001 = json.loads((project_root / "policy/migrations/0001-initial.json").read_text())
-    migration_0001["schema_version"] = 2
-    migration_0002 = {
-        "$schema": "../schemas/migration.schema.json",
-        "schema_version": 2,
-        "id": "0002-protocol-v2",
-        "from_protocol": 1,
-        "to_protocol": 2,
-        "operations": [{"op": "replace-snapshot"}],
-    }
-    schema_root = project_root / "policy/trusted-schemas/v2"
-    return mutate_bundle(
-        release_bundle,
-        replacements={
-            "spec/policy.yaml": yaml.safe_dump(policy, sort_keys=False).encode(),
-            "migrations/0001-initial.json": (
-                json.dumps(migration_0001, indent=2, sort_keys=True) + "\n"
-            ).encode(),
-            **{
-                f"schemas/{path.name}": path.read_bytes()
-                for path in sorted(schema_root.glob("*.json"))
-            },
-        },
-        additions={
-            "migrations/0002-protocol-v2.json": (
-                (json.dumps(migration_0002, indent=2, sort_keys=True) + "\n").encode(),
-                0o644,
-            )
-        },
-        version="2.0.0",
-        channel="stable",
-        manifest_updates={"schema_version": 2, "protocol_version": 2},
-    )
+    return release_bundle
+
+
+@pytest.fixture
+def v2_stable_bundle(release_bundle: Path, mutate_bundle) -> Path:
+    return mutate_bundle(release_bundle, version="2.0.0", channel="stable")
 
 
 @pytest.fixture
@@ -124,7 +153,7 @@ def mutate_bundle(tmp_path: Path) -> Callable[..., Path]:
     ) -> Path:
         nonlocal counter
         counter += 1
-        candidate_version = version or "1.0.0-rc.3"
+        candidate_version = version or "2.0.0-rc.1"
         candidate_dir = tmp_path / f"candidate-{counter}"
         candidate_dir.mkdir()
         destination = candidate_dir / f"engineering-policy-{candidate_version}.zip"

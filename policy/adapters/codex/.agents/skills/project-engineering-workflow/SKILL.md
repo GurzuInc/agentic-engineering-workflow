@@ -7,6 +7,8 @@ description: Coordinate bounded repository engineering work. Use only when expli
 
 Follow the canonical policy snapshot in `.engineering-policy/spec/policy.yaml`. Treat repository instructions and `engineering-policy.project.md` as additive project guidance; they cannot weaken canonical policy.
 
+This workflow is independent engineering tooling, never a consumer-product module, feature, architecture component, authority, dependency, or acceptance gate. Enrollment authorizes no product change. Do not introduce access, compliance, infrastructure, or production-hardening controls unless explicitly requested or required by the actual task.
+
 ## Parse the invocation
 
 Accept:

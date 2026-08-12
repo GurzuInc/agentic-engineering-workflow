@@ -1,8 +1,8 @@
 from pathlib import PurePosixPath
 
 SOURCE_REPOSITORY = "GurzuInc/agentic-engineering-workflow"
-PROTOCOL_VERSION = 1
-SCHEMA_VERSION = 1
+PROTOCOL_VERSION = 2
+SCHEMA_VERSION = 2
 SUPPORTED_SCHEMA_PROTOCOLS = {1: 1, 2: 2}
 SUPPORTED_ADAPTERS = ("codex", "claude")
 SUPPORTED_GUIDANCE_MODES = ("preserve",)

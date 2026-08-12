@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 Follow `.engineering-policy/spec/policy.yaml` and repository-owned extension and guidance files.
 
+This workflow is independent engineering tooling, never a consumer-product module, feature, architecture component, authority, dependency, or acceptance gate. Enrollment authorizes no product change. Do not introduce access, compliance, infrastructure, or production-hardening controls unless explicitly requested or required by the actual task.
+
 Accept `Goal`, `Mode` (`plan`, `implement`, or `review`), and optional `Constraints`. Require a concrete goal, default invalid or omitted modes to read-only plan, and enter implement only with current-conversation approval of the exact plan, repository set, branches, constraints, and local mutations.
 
 Map repository boundaries and applicable guidance. Report branch, HEAD, dirty state, ownership, acceptance criteria, verification, assumptions, and risks before mutation. Keep one coordinator as writer and use applicable read-only agents from `.claude/agents/` after implementation.

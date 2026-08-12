@@ -8,6 +8,8 @@
 - Do not enroll this repository into its own unpublished policy snapshot. Root `AGENTS.md` is repository governance, not a generated consumer adapter.
 - Version 1.0 supports Codex and Claude adapters. Codex is live-validated; Claude live-client validation is explicitly pending follow-up.
 - Version 1.0.2 remains a protocol-v1 release and is the trusted bridge for explicit upgrades to the complete reviewed protocol-v2 schema set. It permits protocol-v2 general availability with Codex validated and Claude validation explicitly pending.
+- Version 2.0 is protocol-v2 general availability with Codex validated and Claude live-client validation pending. Claude validation may be completed later by any authenticated Gurzu engineer on macOS or Linux and is not a release gate.
+- This tooling is independent of every consumer product. Enrollment never makes it a product module, architecture component, authority, dependency, or acceptance gate and never authorizes product changes or unrelated hardening controls.
 
 ## Change discipline
 

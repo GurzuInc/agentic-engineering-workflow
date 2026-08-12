@@ -36,6 +36,10 @@ def test_public_cli_surface_is_exact() -> None:
         "--codeowners-mode",
     }
     assert "--adopt-existing" not in init.format_help()
+    doctor = subparsers.choices["doctor"]
+    client = next(action for action in doctor._actions if action.dest == "client")
+    assert client.choices == ("codex", "claude", "all")
+    assert client.default == "all"
 
 
 def test_repository_formats_parse(project_root: Path) -> None:
@@ -167,6 +171,22 @@ def test_bundle_contract_contains_codex_and_claude_adapters(
     assert "adapters/claude/CLAUDE.md" not in names
 
 
+def test_release_policy_prompts_and_adapters_are_consumer_product_neutral(
+    project_root: Path, release_bundle: Path
+) -> None:
+    banned = ("publisher-lms", "publisher lms", "f00")
+    bundle = Bundle.load(release_bundle)
+    checked = {
+        name: content
+        for name, content in bundle.files.items()
+        if name == "spec/policy.yaml" or name.startswith("prompts/") or name.startswith("adapters/")
+    }
+    assert checked
+    for name, content in checked.items():
+        text = content.decode("utf-8").casefold()
+        assert not any(term in text for term in banned), name
+
+
 def test_release_build_is_deterministic(project_root: Path, tmp_path: Path) -> None:
     commit = "0123456789abcdef0123456789abcdef01234567"
     outputs = [tmp_path / "one", tmp_path / "two"]
@@ -178,7 +198,7 @@ def test_release_build_is_deterministic(project_root: Path, tmp_path: Path) -> N
                 "--output-dir",
                 str(output),
                 "--version",
-                "1.0.0-rc.3",
+                "2.0.0-rc.1",
                 "--source-commit",
                 commit,
             ],
@@ -188,7 +208,7 @@ def test_release_build_is_deterministic(project_root: Path, tmp_path: Path) -> N
             text=True,
         )
     names = {
-        "engineering-policy-1.0.0-rc.3.zip",
+        "engineering-policy-2.0.0-rc.1.zip",
         "policyctl.pyz",
         "release-manifest.json",
         "SHA256SUMS",
@@ -201,8 +221,8 @@ def test_release_build_is_deterministic(project_root: Path, tmp_path: Path) -> N
 def test_release_manifest_and_checksums_are_exact(release_bundle: Path, project_root: Path) -> None:
     output = release_bundle.parent
     manifest = json.loads((output / "release-manifest.json").read_text())
-    assert manifest["version"] == "1.0.0-rc.3"
-    assert manifest["tag"] == "v1.0.0-rc.3"
+    assert manifest["version"] == "2.0.0-rc.1"
+    assert manifest["tag"] == "v2.0.0-rc.1"
     assert manifest["source_commit"] == "0123456789abcdef0123456789abcdef01234567"
     assert manifest["supported_adapters"] == ["codex", "claude"]
     assert manifest["adapter_validation"] == {"codex": "validated", "claude": "pending"}
@@ -218,14 +238,14 @@ def test_release_manifest_and_checksums_are_exact(release_bundle: Path, project_
         digest, name = line.split("  ", 1)
         expected[name] = digest
     assert set(expected) == {
-        "engineering-policy-1.0.0-rc.3.zip",
+        "engineering-policy-2.0.0-rc.1.zip",
         "policyctl.pyz",
         "release-manifest.json",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((output / name).read_bytes()).hexdigest() == digest
     assert manifest["asset_digests"] == {
-        "engineering-policy-1.0.0-rc.3.zip": expected["engineering-policy-1.0.0-rc.3.zip"],
+        "engineering-policy-2.0.0-rc.1.zip": expected["engineering-policy-2.0.0-rc.1.zip"],
         "policyctl.pyz": expected["policyctl.pyz"],
     }
     assert (project_root / "RECOVERY.md").is_file()
