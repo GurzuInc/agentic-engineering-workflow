@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import zipfile
@@ -12,6 +13,11 @@ import pytest
 import yaml
 
 from engineering_policy.bundle import Bundle
+
+_V1_TAG = "v1.0.2"
+_V1_SOURCE_COMMIT = "07e4190e65191eba762a79d5ede0be0cadecf060"
+_V1_BUNDLE_SHA256 = "fa9651309a637a87ab04aa549751d40ca41c0b8ab8cafe3fb0b1db4c15784d4c"
+_V1_UPDATER_SHA256 = "303306fcf78442725e0ccc6b27972f46361d998238e9419e672f52cb8cacd583"
 
 
 @pytest.fixture(scope="session")
@@ -46,32 +52,64 @@ def valid_bundle(release_bundle: Path) -> Bundle:
     return Bundle.load(release_bundle)
 
 
-@pytest.fixture
-def v1_bundle(release_bundle: Path, mutate_bundle, project_root: Path) -> Path:
-    def released(path: str) -> bytes:
-        return subprocess.check_output(["git", "show", f"v1.0.2:{path}"], cwd=project_root)
-
-    return mutate_bundle(
-        release_bundle,
-        replacements={
-            "spec/policy.yaml": released("policy/spec/policy.yaml"),
-            "migrations/0001-initial.json": released("policy/migrations/0001-initial.json"),
-            **{
-                f"schemas/{name}": released(f"policy/schemas/{name}")
-                for name in (
-                    "lock.schema.json",
-                    "manifest.schema.json",
-                    "migration.schema.json",
-                    "overlay.schema.json",
-                    "policy.schema.json",
-                )
-            },
-        },
-        removals={"migrations/0002-protocol-v2.json"},
-        version="1.0.2",
-        channel="stable",
-        manifest_updates={"schema_version": 1, "protocol_version": 1},
+@pytest.fixture(scope="session")
+def v1_release_assets(tmp_path_factory: pytest.TempPathFactory, project_root: Path) -> Path:
+    fixture_root = tmp_path_factory.mktemp("v1-release")
+    source = fixture_root / "source"
+    source.mkdir()
+    source_archive = fixture_root / "source.tar"
+    resolved = subprocess.check_output(
+        ["git", "rev-parse", f"{_V1_TAG}^{{commit}}"],
+        cwd=project_root,
+        text=True,
+    ).strip()
+    assert resolved == _V1_SOURCE_COMMIT
+    subprocess.run(
+        ["git", "archive", "--format=tar", "--output", str(source_archive), _V1_TAG],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
     )
+    subprocess.run(
+        ["tar", "-xf", str(source_archive), "-C", str(source)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    output = fixture_root / "dist"
+    subprocess.run(
+        [
+            sys.executable,
+            str(source / "scripts/build_release.py"),
+            "--output-dir",
+            str(output),
+            "--version",
+            "1.0.2",
+            "--source-commit",
+            _V1_SOURCE_COMMIT,
+        ],
+        cwd=source,
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "PYTHONPATH": str(source / "src"),
+        },
+    )
+    bundle = output / "engineering-policy-1.0.2.zip"
+    updater = output / "policyctl.pyz"
+    assert hashlib.sha256(bundle.read_bytes()).hexdigest() == _V1_BUNDLE_SHA256
+    assert hashlib.sha256(updater.read_bytes()).hexdigest() == _V1_UPDATER_SHA256
+    with zipfile.ZipFile(bundle) as archive:
+        assert hashlib.sha256(archive.read("bin/policyctl.pyz")).hexdigest() == _V1_UPDATER_SHA256
+    return output
+
+
+@pytest.fixture(scope="session")
+def v1_bundle(v1_release_assets: Path) -> Path:
+    return v1_release_assets / "engineering-policy-1.0.2.zip"
 
 
 @pytest.fixture
