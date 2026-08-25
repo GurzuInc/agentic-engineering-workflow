@@ -1,0 +1,44 @@
+schema_version: 1
+routing_version: 1
+client: codex
+fail_closed: true
+max_review_fix_passes: 2
+orchestration:
+  parent_writes: false
+  planner_complete_before_executor: true
+  review_fanout: parallel
+  executor_retained_for_fixes: true
+  route_findings_to: executor
+  rerun_reviewers_after_fix: true
+routes:
+  planner:
+    agent: default
+    model: gpt-5.6-sol
+    reasoning_effort: high
+    permission: read-only
+    output: decision-complete execution packet
+  executor:
+    agent: worker
+    model: gpt-5.6-luna
+    reasoning_effort: max
+    permission: writer
+    output: implementation diff, tests, evidence, and residual risks
+  reviewers:
+    - id: project_contract_reviewer
+      agent: project_contract_reviewer
+      model: gpt-5.6-terra
+      reasoning_effort: xhigh
+      permission: read-only
+      parallel: true
+    - id: project_test_reviewer
+      agent: project_test_reviewer
+      model: gpt-5.6-terra
+      reasoning_effort: xhigh
+      permission: read-only
+      parallel: true
+    - id: project_security_reviewer
+      agent: project_security_reviewer
+      model: gpt-5.6-terra
+      reasoning_effort: xhigh
+      permission: read-only
+      parallel: true
