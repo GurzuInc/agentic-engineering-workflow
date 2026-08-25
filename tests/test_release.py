@@ -465,11 +465,11 @@ def _mock_release_downloads(
     monkeypatch: pytest.MonkeyPatch,
     assets: dict[str, Path],
     *,
-    tag_name: str = "v2.0.0-rc.1",
+    tag_name: str = "v2.1.0-rc.1",
     draft: bool = False,
     prerelease: bool = True,
 ) -> list[tuple[str, ...]]:
-    base = "https://github.com/GurzuInc/agentic-engineering-workflow/releases/download/v2.0.0-rc.1/"
+    base = "https://github.com/GurzuInc/agentic-engineering-workflow/releases/download/v2.1.0-rc.1/"
     release = {
         "tag_name": tag_name,
         "draft": draft,
@@ -499,10 +499,10 @@ def test_verified_bundle_composes_release_checks_before_yielding(
 ) -> None:
     assets = {path.name: path for path in release_bundle.parent.iterdir()}
     verified = _mock_release_downloads(monkeypatch, assets)
-    with ReleaseClient().verified_bundle(Version.parse("2.0.0-rc.1")) as bundle:
-        assert bundle.version == "2.0.0-rc.1"
+    with ReleaseClient().verified_bundle(Version.parse("2.1.0-rc.1")) as bundle:
+        assert bundle.version == "2.1.0-rc.1"
     assert len(verified) == 1
-    assert verified[0][0] == "v2.0.0-rc.1"
+    assert verified[0][0] == "v2.1.0-rc.1"
     assert set(verified[0][1:]) == set(assets)
 
 
@@ -523,7 +523,7 @@ def test_verified_bundle_rejects_release_identity_and_state_before_download(
     assets = {path.name: path for path in release_bundle.parent.iterdir()}
     _mock_release_downloads(monkeypatch, assets, **metadata)
     with pytest.raises(PolicyError, match=message):
-        with ReleaseClient().verified_bundle(Version.parse("2.0.0-rc.1")):
+        with ReleaseClient().verified_bundle(Version.parse("2.1.0-rc.1")):
             pass
 
 
@@ -552,7 +552,7 @@ def test_verified_bundle_rejects_standalone_updater_that_differs_from_bundle(
     )
     _mock_release_downloads(monkeypatch, assets)
     with pytest.raises(PolicyError, match="standalone updater differs"):
-        with ReleaseClient().verified_bundle(Version.parse("2.0.0-rc.1")):
+        with ReleaseClient().verified_bundle(Version.parse("2.1.0-rc.1")):
             pass
 
 
@@ -573,7 +573,7 @@ def test_verified_bundle_cross_binds_outer_and_inner_protocol(
         "engineering_policy.release._validate_release_artifacts", mismatched_contract
     )
     with pytest.raises(PolicyError, match="differs from the release manifest"):
-        with ReleaseClient().verified_bundle(Version.parse("2.0.0-rc.1")):
+        with ReleaseClient().verified_bundle(Version.parse("2.1.0-rc.1")):
             pass
 
 
@@ -593,5 +593,5 @@ def test_verified_bundle_cross_binds_outer_and_inner_adapter_validation(
         "engineering_policy.release._validate_release_artifacts", mismatched_contract
     )
     with pytest.raises(PolicyError, match="adapter validation differs"):
-        with ReleaseClient().verified_bundle(Version.parse("2.0.0-rc.1")):
+        with ReleaseClient().verified_bundle(Version.parse("2.1.0-rc.1")):
             pass

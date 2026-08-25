@@ -349,10 +349,15 @@ def _validate_codex_execution_contract(
     except (KeyError, UnicodeDecodeError) as exc:
         raise PolicyError("Codex workflow skill is missing or not UTF-8") from exc
     required_fragments = (
+        "model and reasoning-effort mismatches are a hard failure and never fall back to "
+        "another model",
         "built-in `default` subagent with `gpt-5.6-sol` at `high` reasoning effort",
+        "in read-only mode",
         "built-in `worker` subagent with `gpt-5.6-luna` at `max` reasoning effort",
         "`project_contract_reviewer`, `project_test_reviewer`, and `project_security_reviewer`",
         "`gpt-5.6-terra` at `xhigh` reasoning effort",
+        "run in parallel",
+        "read-only permissions",
         "the sole workspace writer",
         "the parent orchestrator and all reviewers must not edit files",
         "Allow at most two review/fix passes",

@@ -47,6 +47,49 @@ def test_adapter_contract_rejects_skill_route_divergence(
         Bundle.load(candidate)
 
 
+@pytest.mark.parametrize(
+    ("needle", "replacement"),
+    [
+        ("hard failure and never fall back to another model", "best effort"),
+        ("in read-only mode", "in writer mode"),
+        ("run in parallel", "run sequentially"),
+        ("read-only permissions", "writer permissions"),
+    ],
+)
+def test_adapter_contract_rejects_weakened_skill_controls(
+    release_bundle: Path, mutate_bundle, needle: str, replacement: str
+) -> None:
+    skill = "adapters/codex/.agents/skills/project-engineering-workflow/SKILL.md"
+    source = Bundle.load(release_bundle).files[skill].decode()
+    assert needle in source
+    mutated = source.replace(needle, replacement, 1).encode()
+    candidate = mutate_bundle(release_bundle, replacements={skill: mutated})
+    with pytest.raises(PolicyError, match="workflow skill does not implement"):
+        Bundle.load(candidate)
+
+
+def test_adapter_contract_rejects_a_missing_routing_sentinel(
+    release_bundle: Path, mutate_bundle
+) -> None:
+    candidate = mutate_bundle(
+        release_bundle,
+        removals={"adapters/codex/.codex/model-routing.yaml"},
+    )
+    with pytest.raises(PolicyError, match="missing its model-routing sentinel"):
+        Bundle.load(candidate)
+
+
+def test_adapter_contract_rejects_an_altered_routing_sentinel(
+    release_bundle: Path, mutate_bundle
+) -> None:
+    candidate = mutate_bundle(
+        release_bundle,
+        replacements={"adapters/codex/.codex/model-routing.yaml": b"tampered\n"},
+    )
+    with pytest.raises(PolicyError, match="sentinel differs"):
+        Bundle.load(candidate)
+
+
 def test_adapter_contract_rejects_a_three_thread_configuration(
     release_bundle: Path, mutate_bundle
 ) -> None:
