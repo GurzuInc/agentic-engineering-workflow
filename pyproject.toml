@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 dependencies = [
-  "fastjsonschema==2.22.1",
+  "fastjsonschema==2.22.2",
   "PyYAML==6.0.3",
 ]
 
