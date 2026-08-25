@@ -44,6 +44,7 @@ Constraints: <optional>
 ## Codex model-routed execution graph
 
 For an approved implementation, use the exact routes in `.engineering-policy/spec/codex-model-routing.yaml`; model and reasoning-effort mismatches are a hard failure and never fall back to another model.
+Fail-closed means the bundle validator, updater boundary, doctor, and this explicit workflow contract reject or stop on mismatches; this policy adapter cannot intercept a Codex client's internal scheduler, so an unsupported runtime route must be reported as blocked rather than silently substituted.
 
 1. Planning: run the built-in `default` subagent with `gpt-5.6-sol` at `high` reasoning effort in read-only mode. Have it inspect the repository and return a decision-complete execution packet covering scope, owned files, acceptance criteria, verification commands, assumptions, and risks. Close this planning phase before execution begins.
 2. Execution: run the built-in `worker` subagent with `gpt-5.6-luna` at `max` reasoning effort. The worker is the implementation coordinator and the sole workspace writer: the parent orchestrator and all reviewers must not edit files. Give the worker the planner's packet and require the resulting diff, tests, evidence, and residual risks.

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -85,3 +88,29 @@ def test_real_v20_bundle_keeps_the_legacy_adapter_contract(legacy_v2_bundle: Bun
     assert legacy_v2_bundle.version == "2.0.0"
     assert "spec/codex-model-routing.yaml" not in legacy_v2_bundle.files
     assert "adapters/codex/.codex/model-routing.yaml" not in legacy_v2_bundle.files
+
+
+def test_v20_validator_rejects_the_v21_adapter_sentinel(
+    legacy_v2_bundle: Bundle, release_bundle: Path
+) -> None:
+    legacy_source = legacy_v2_bundle.path.parent.parent / "source"
+    script = (
+        "from pathlib import Path\n"
+        "import sys\n"
+        "from engineering_policy.bundle import Bundle\n"
+        "try:\n"
+        "    Bundle.load(Path(sys.argv[1]))\n"
+        "except Exception as exc:\n"
+        "    print(exc)\n"
+        "    raise SystemExit(0)\n"
+        "raise SystemExit(1)\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(release_bundle)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(legacy_source / "src")},
+    )
+    assert result.returncode == 0
+    assert "adapter file contract mismatch" in result.stdout
