@@ -25,6 +25,10 @@ jobs:
         run: |
           git fetch --no-tags --depth=1 origin refs/tags/v1.0.2:refs/tags/v1.0.2
           test "$(git rev-parse 'v1.0.2^{commit}')" = 07e4190e65191eba762a79d5ede0be0cadecf060
+      - name: Fetch the exact immutable v2.0.0 legacy fixture
+        run: |
+          git fetch --no-tags --depth=1 origin refs/tags/v2.0.0:refs/tags/v2.0.0
+          test "$(git rev-parse 'v2.0.0^{commit}')" = 7821bc3e20b9ffa34aa29aa33992104a72d4ab86
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
