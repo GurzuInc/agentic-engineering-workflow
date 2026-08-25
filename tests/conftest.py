@@ -35,7 +35,7 @@ def release_bundle(tmp_path_factory: pytest.TempPathFactory, project_root: Path)
             "--output-dir",
             str(output),
             "--version",
-            "2.0.0-rc.1",
+            "2.1.0-rc.1",
             "--source-commit",
             "0123456789abcdef0123456789abcdef01234567",
         ],
@@ -44,12 +44,60 @@ def release_bundle(tmp_path_factory: pytest.TempPathFactory, project_root: Path)
         capture_output=True,
         text=True,
     )
-    return output / "engineering-policy-2.0.0-rc.1.zip"
+    return output / "engineering-policy-2.1.0-rc.1.zip"
 
 
 @pytest.fixture
 def valid_bundle(release_bundle: Path) -> Bundle:
     return Bundle.load(release_bundle)
+
+
+@pytest.fixture(scope="session")
+def legacy_v2_bundle(tmp_path_factory: pytest.TempPathFactory, project_root: Path) -> Bundle:
+    fixture_root = tmp_path_factory.mktemp("legacy-v2-release")
+    source = fixture_root / "source"
+    source.mkdir()
+    source_archive = fixture_root / "source.tar"
+    source_commit = subprocess.check_output(
+        ["git", "rev-parse", "v2.0.0^{commit}"],
+        cwd=project_root,
+        text=True,
+    ).strip()
+    subprocess.run(
+        ["git", "archive", "--format=tar", "--output", str(source_archive), "v2.0.0"],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["tar", "-xf", str(source_archive), "-C", str(source)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    output = fixture_root / "dist"
+    subprocess.run(
+        [
+            sys.executable,
+            str(source / "scripts/build_release.py"),
+            "--output-dir",
+            str(output),
+            "--version",
+            "2.0.0",
+            "--source-commit",
+            source_commit,
+        ],
+        cwd=source,
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "PYTHONPATH": str(source / "src"),
+        },
+    )
+    return Bundle.load(output / "engineering-policy-2.0.0.zip")
 
 
 @pytest.fixture(scope="session")
@@ -119,7 +167,7 @@ def v2_bundle(release_bundle: Path, mutate_bundle, project_root: Path) -> Path:
 
 @pytest.fixture
 def v2_stable_bundle(release_bundle: Path, mutate_bundle) -> Path:
-    return mutate_bundle(release_bundle, version="2.0.0", channel="stable")
+    return mutate_bundle(release_bundle, version="2.1.0", channel="stable")
 
 
 @pytest.fixture
@@ -153,7 +201,7 @@ def mutate_bundle(tmp_path: Path) -> Callable[..., Path]:
     ) -> Path:
         nonlocal counter
         counter += 1
-        candidate_version = version or "2.0.0-rc.1"
+        candidate_version = version or "2.1.0-rc.1"
         candidate_dir = tmp_path / f"candidate-{counter}"
         candidate_dir.mkdir()
         destination = candidate_dir / f"engineering-policy-{candidate_version}.zip"

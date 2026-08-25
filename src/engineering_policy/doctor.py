@@ -174,12 +174,7 @@ def _codex_models(repo: Path) -> list[Diagnostic]:
     cache = Path.home() / ".codex/models_cache.json"
     try:
         payload = json.loads(cache.read_text(encoding="utf-8"))
-        available = {
-            item["slug"]
-            for item in payload.get("models", [])
-            if isinstance(item, dict) and isinstance(item.get("slug"), str)
-        }
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return [
             Diagnostic(
                 "error",
@@ -187,6 +182,30 @@ def _codex_models(repo: Path) -> list[Diagnostic]:
                 "Codex model catalog is unavailable; configured reviewer models cannot be verified",
             )
         ]
+    models = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(models, list):
+        return [Diagnostic("error", "codex-models", "Codex model catalog has an invalid shape")]
+    available: set[str] = set()
+    supported_efforts: dict[str, set[str]] = {}
+    for item in models:
+        if not isinstance(item, dict) or not isinstance(item.get("slug"), str):
+            return [Diagnostic("error", "codex-models", "Codex model catalog has an invalid model")]
+        slug = item["slug"]
+        available.add(slug)
+        levels = item.get("supported_reasoning_levels", [])
+        if not isinstance(levels, list):
+            return [
+                Diagnostic(
+                    "error",
+                    "codex-models",
+                    f"Codex model catalog has invalid reasoning levels for {slug}",
+                )
+            ]
+        supported_efforts[slug] = {
+            level["effort"]
+            for level in levels
+            if isinstance(level, dict) and isinstance(level.get("effort"), str)
+        }
     unavailable = sorted(configured - available)
     if unavailable:
         return [
@@ -196,15 +215,6 @@ def _codex_models(repo: Path) -> list[Diagnostic]:
                 f"configured Codex models are unavailable: {', '.join(unavailable)}",
             )
         ]
-    supported_efforts = {
-        item["slug"]: {
-            level["effort"]
-            for level in item.get("supported_reasoning_levels", [])
-            if isinstance(level, dict) and isinstance(level.get("effort"), str)
-        }
-        for item in payload.get("models", [])
-        if isinstance(item, dict) and isinstance(item.get("slug"), str)
-    }
     unsupported_efforts = sorted(
         f"{model}:{effort}"
         for model, effort in routed

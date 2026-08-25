@@ -54,6 +54,83 @@ def test_doctor_detects_unavailable_configured_models(monkeypatch, tmp_path: Pat
     assert "unavailable-model" in diagnostics[0].message
 
 
+def test_doctor_accepts_all_routed_models_and_reasoning_efforts(
+    monkeypatch, git_repo: Path, valid_bundle: Bundle, tmp_path: Path
+) -> None:
+    initialize(git_repo, valid_bundle, ("codex",))
+    cache = tmp_path / ".codex/models_cache.json"
+    cache.parent.mkdir(parents=True)
+    levels = {
+        "gpt-5.6-sol": ["high"],
+        "gpt-5.6-luna": ["max"],
+        "gpt-5.6-terra": ["xhigh"],
+    }
+    cache.write_text(
+        json.dumps(
+            {
+                "models": [
+                    {
+                        "slug": model,
+                        "supported_reasoning_levels": [{"effort": effort} for effort in efforts],
+                    }
+                    for model, efforts in levels.items()
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("engineering_policy.doctor.Path.home", lambda: tmp_path)
+    assert _codex_models(git_repo) == []
+
+
+def test_doctor_rejects_a_missing_routed_reasoning_effort(
+    monkeypatch, git_repo: Path, valid_bundle: Bundle, tmp_path: Path
+) -> None:
+    initialize(git_repo, valid_bundle, ("codex",))
+    cache = tmp_path / ".codex/models_cache.json"
+    cache.parent.mkdir(parents=True)
+    cache.write_text(
+        json.dumps(
+            {
+                "models": [
+                    {
+                        "slug": model,
+                        "supported_reasoning_levels": [{"effort": effort}],
+                    }
+                    for model, effort in (
+                        ("gpt-5.6-sol", "high"),
+                        ("gpt-5.6-luna", "max"),
+                        ("gpt-5.6-terra", "high"),
+                    )
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("engineering_policy.doctor.Path.home", lambda: tmp_path)
+    diagnostics = _codex_models(git_repo)
+    assert diagnostics[0].code == "codex-models"
+    assert "gpt-5.6-terra:xhigh" in diagnostics[0].message
+
+
+def test_doctor_rejects_a_malformed_model_catalog(monkeypatch, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cache = tmp_path / ".codex/models_cache.json"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr("engineering_policy.doctor.Path.home", lambda: tmp_path)
+    diagnostics = _codex_models(repo)
+    assert [(item.severity, item.code) for item in diagnostics] == [("error", "codex-models")]
+    cache.write_text(
+        json.dumps({"models": [{"slug": "gpt-5.6-sol", "supported_reasoning_levels": None}]}),
+        encoding="utf-8",
+    )
+    diagnostics = _codex_models(repo)
+    assert diagnostics[0].code == "codex-models"
+    assert "invalid reasoning levels" in diagnostics[0].message
+
+
 def test_doctor_reports_ready_for_a_conformant_supported_install(
     monkeypatch, git_repo: Path, valid_bundle: Bundle
 ) -> None:

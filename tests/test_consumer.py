@@ -76,7 +76,7 @@ def test_supported_cli_init_composes_verified_release_and_preserves_guidance(
 
     @contextmanager
     def verified_bundle(_client, version):
-        assert str(version) == "2.0.0-rc.1"
+        assert str(version) == "2.1.0-rc.1"
         yield valid_bundle
 
     monkeypatch.setattr("engineering_policy.cli.ReleaseClient.verified_bundle", verified_bundle)
@@ -86,7 +86,7 @@ def test_supported_cli_init_composes_verified_release_and_preserves_guidance(
             "--repo",
             str(git_repo),
             "--version",
-            "2.0.0-rc.1",
+            "2.1.0-rc.1",
             "--adapters",
             "codex,claude",
             "--guidance-mode",
@@ -280,7 +280,7 @@ def test_lock_and_snapshot_policy_versions_must_agree(git_repo: Path, valid_bund
     initialize(git_repo, valid_bundle, ("codex",))
     policy_path = git_repo / ".engineering-policy/spec/policy.yaml"
     content = policy_path.read_text().replace(
-        "policy_version: 2.0.0-rc.1", "policy_version: 2.0.0-rc.2"
+        "policy_version: 2.1.0-rc.1", "policy_version: 2.1.0-rc.2"
     )
     policy_path.write_text(content, encoding="utf-8")
     lock = _read_lock(git_repo)

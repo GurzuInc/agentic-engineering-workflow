@@ -25,6 +25,42 @@ def test_model_routing_contract_is_exact(release_bundle: Path) -> None:
     assert all(item["reasoning_effort"] == "xhigh" for item in routing["routes"]["reviewers"])
 
 
+def test_model_routing_sentinel_is_copied_into_the_codex_adapter(release_bundle: Path) -> None:
+    bundle = Bundle.load(release_bundle)
+    assert (
+        bundle.files["spec/codex-model-routing.yaml"]
+        == bundle.files["adapters/codex/.codex/model-routing.yaml"]
+    )
+
+
+def test_adapter_contract_rejects_skill_route_divergence(
+    release_bundle: Path, mutate_bundle
+) -> None:
+    skill = "adapters/codex/.agents/skills/project-engineering-workflow/SKILL.md"
+    source = Bundle.load(release_bundle).files[skill].decode()
+    mutated = source.replace("gpt-5.6-luna", "gpt-5.6-sol", 1).encode()
+    candidate = mutate_bundle(release_bundle, replacements={skill: mutated})
+    with pytest.raises(PolicyError, match="workflow skill does not implement"):
+        Bundle.load(candidate)
+
+
+def test_adapter_contract_rejects_a_three_thread_configuration(
+    release_bundle: Path, mutate_bundle
+) -> None:
+    config = b"""project_doc_max_bytes = 32768
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 3
+"""
+    candidate = mutate_bundle(
+        release_bundle,
+        replacements={"adapters/codex/.codex/config.toml": config},
+    )
+    with pytest.raises(PolicyError, match="four concurrent review threads"):
+        Bundle.load(candidate)
+
+
 def test_model_routing_rejects_a_model_or_effort_fallback(release_bundle: Path) -> None:
     bundle = Bundle.load(release_bundle)
     content = bundle.files["spec/codex-model-routing.yaml"].decode()
@@ -43,3 +79,9 @@ def test_model_routing_requires_the_route_in_v21_policy(
     )
     with pytest.raises(PolicyError, match="required Codex model-routing spec"):
         Bundle.load(missing)
+
+
+def test_real_v20_bundle_keeps_the_legacy_adapter_contract(legacy_v2_bundle: Bundle) -> None:
+    assert legacy_v2_bundle.version == "2.0.0"
+    assert "spec/codex-model-routing.yaml" not in legacy_v2_bundle.files
+    assert "adapters/codex/.codex/model-routing.yaml" not in legacy_v2_bundle.files
