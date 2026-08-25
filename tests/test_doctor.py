@@ -61,7 +61,7 @@ def test_doctor_accepts_all_routed_models_and_reasoning_efforts(
     cache = tmp_path / ".codex/models_cache.json"
     cache.parent.mkdir(parents=True)
     levels = {
-        "gpt-5.6-sol": ["high"],
+        "gpt-5.6-sol": ["medium"],
         "gpt-5.6-luna": ["max"],
         "gpt-5.6-terra": ["xhigh"],
     }
@@ -98,7 +98,7 @@ def test_doctor_rejects_a_missing_routed_reasoning_effort(
                         "supported_reasoning_levels": [{"effort": effort}],
                     }
                     for model, effort in (
-                        ("gpt-5.6-sol", "high"),
+                        ("gpt-5.6-sol", "medium"),
                         ("gpt-5.6-luna", "max"),
                         ("gpt-5.6-terra", "high"),
                     )

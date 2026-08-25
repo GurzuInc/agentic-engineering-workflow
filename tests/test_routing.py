@@ -19,6 +19,7 @@ def test_model_routing_contract_is_exact(release_bundle: Path) -> None:
     assert routing["fail_closed"] is True
     assert routing["max_review_fix_passes"] == 2
     assert routing["routes"]["planner"]["model"] == "gpt-5.6-sol"
+    assert routing["routes"]["planner"]["reasoning_effort"] == "medium"
     assert routing["routes"]["executor"]["model"] == "gpt-5.6-luna"
     assert [item["model"] for item in routing["routes"]["reviewers"]] == [
         "gpt-5.6-terra",

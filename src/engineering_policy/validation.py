@@ -293,7 +293,7 @@ def validate_model_routing(files: dict[str, bytes]) -> dict[str, Any]:
         expected={
             "agent": "default",
             "model": "gpt-5.6-sol",
-            "reasoning_effort": "high",
+            "reasoning_effort": "medium",
             "permission": "read-only",
             "output": "decision-complete execution packet",
         },
@@ -351,7 +351,7 @@ def _validate_codex_execution_contract(
     required_fragments = (
         "model and reasoning-effort mismatches are a hard failure and never fall back to "
         "another model",
-        "built-in `default` subagent with `gpt-5.6-sol` at `high` reasoning effort",
+        "built-in `default` subagent with `gpt-5.6-sol` at `medium` reasoning effort",
         "in read-only mode",
         "built-in `worker` subagent with `gpt-5.6-luna` at `max` reasoning effort",
         "`project_contract_reviewer`, `project_test_reviewer`, and `project_security_reviewer`",
