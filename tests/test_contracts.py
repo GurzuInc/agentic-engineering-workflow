@@ -198,7 +198,7 @@ def test_release_build_is_deterministic(project_root: Path, tmp_path: Path) -> N
                 "--output-dir",
                 str(output),
                 "--version",
-                "2.0.0-rc.1",
+                "2.1.0-rc.1",
                 "--source-commit",
                 commit,
             ],
@@ -208,7 +208,7 @@ def test_release_build_is_deterministic(project_root: Path, tmp_path: Path) -> N
             text=True,
         )
     names = {
-        "engineering-policy-2.0.0-rc.1.zip",
+        "engineering-policy-2.1.0-rc.1.zip",
         "policyctl.pyz",
         "release-manifest.json",
         "SHA256SUMS",
@@ -221,8 +221,8 @@ def test_release_build_is_deterministic(project_root: Path, tmp_path: Path) -> N
 def test_release_manifest_and_checksums_are_exact(release_bundle: Path, project_root: Path) -> None:
     output = release_bundle.parent
     manifest = json.loads((output / "release-manifest.json").read_text())
-    assert manifest["version"] == "2.0.0-rc.1"
-    assert manifest["tag"] == "v2.0.0-rc.1"
+    assert manifest["version"] == "2.1.0-rc.1"
+    assert manifest["tag"] == "v2.1.0-rc.1"
     assert manifest["source_commit"] == "0123456789abcdef0123456789abcdef01234567"
     assert manifest["supported_adapters"] == ["codex", "claude"]
     assert manifest["adapter_validation"] == {"codex": "validated", "claude": "pending"}
@@ -238,14 +238,14 @@ def test_release_manifest_and_checksums_are_exact(release_bundle: Path, project_
         digest, name = line.split("  ", 1)
         expected[name] = digest
     assert set(expected) == {
-        "engineering-policy-2.0.0-rc.1.zip",
+        "engineering-policy-2.1.0-rc.1.zip",
         "policyctl.pyz",
         "release-manifest.json",
     }
     for name, digest in expected.items():
         assert hashlib.sha256((output / name).read_bytes()).hexdigest() == digest
     assert manifest["asset_digests"] == {
-        "engineering-policy-2.0.0-rc.1.zip": expected["engineering-policy-2.0.0-rc.1.zip"],
+        "engineering-policy-2.1.0-rc.1.zip": expected["engineering-policy-2.1.0-rc.1.zip"],
         "policyctl.pyz": expected["policyctl.pyz"],
     }
     assert (project_root / "RECOVERY.md").is_file()

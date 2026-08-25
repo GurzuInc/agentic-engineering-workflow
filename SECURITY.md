@@ -14,7 +14,7 @@ credentials.
 
 ```bash
 set -euo pipefail
-workflow_version=2.0.0
+workflow_version=2.1.0
 workflow_tag="v${workflow_version}"
 workflow_bundle="engineering-policy-${workflow_version}.zip"
 workflow_bootstrap_dir="$(mktemp -d)"

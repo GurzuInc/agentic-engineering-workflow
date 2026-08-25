@@ -11,7 +11,7 @@ from pathlib import Path
 from engineering_policy.errors import PolicyError
 from engineering_policy.rendering import check_repository, load_lock
 from engineering_policy.semver import Version
-from engineering_policy.validation import load_yaml_bytes
+from engineering_policy.validation import load_yaml_bytes, validate_model_routing
 
 _VERSION_PATTERN = re.compile(r"(?<!\d)(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)")
 
@@ -147,6 +147,7 @@ def _codex_trust(repo: Path) -> list[Diagnostic]:
 
 def _codex_models(repo: Path) -> list[Diagnostic]:
     configured: set[str] = set()
+    routed: list[tuple[str, str]] = []
     for path in (repo / ".codex/agents").glob("*.toml"):
         try:
             data = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -155,15 +156,25 @@ def _codex_models(repo: Path) -> list[Diagnostic]:
         model = data.get("model")
         if isinstance(model, str):
             configured.add(model)
+    routing_path = repo / ".engineering-policy/spec/codex-model-routing.yaml"
+    if routing_path.exists():
+        try:
+            routing = validate_model_routing(
+                {"spec/codex-model-routing.yaml": routing_path.read_bytes()}
+            )
+        except (OSError, PolicyError) as exc:
+            return [Diagnostic("error", "codex-model-routing", str(exc))]
+        planner = routing["routes"]["planner"]
+        executor = routing["routes"]["executor"]
+        configured.update((planner["model"], executor["model"]))
+        routed.extend(
+            (route["model"], route["reasoning_effort"])
+            for route in (planner, executor, *routing["routes"]["reviewers"])
+        )
     cache = Path.home() / ".codex/models_cache.json"
     try:
         payload = json.loads(cache.read_text(encoding="utf-8"))
-        available = {
-            item["slug"]
-            for item in payload.get("models", [])
-            if isinstance(item, dict) and isinstance(item.get("slug"), str)
-        }
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return [
             Diagnostic(
                 "error",
@@ -171,6 +182,30 @@ def _codex_models(repo: Path) -> list[Diagnostic]:
                 "Codex model catalog is unavailable; configured reviewer models cannot be verified",
             )
         ]
+    models = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(models, list):
+        return [Diagnostic("error", "codex-models", "Codex model catalog has an invalid shape")]
+    available: set[str] = set()
+    supported_efforts: dict[str, set[str]] = {}
+    for item in models:
+        if not isinstance(item, dict) or not isinstance(item.get("slug"), str):
+            return [Diagnostic("error", "codex-models", "Codex model catalog has an invalid model")]
+        slug = item["slug"]
+        available.add(slug)
+        levels = item.get("supported_reasoning_levels", [])
+        if not isinstance(levels, list):
+            return [
+                Diagnostic(
+                    "error",
+                    "codex-models",
+                    f"Codex model catalog has invalid reasoning levels for {slug}",
+                )
+            ]
+        supported_efforts[slug] = {
+            level["effort"]
+            for level in levels
+            if isinstance(level, dict) and isinstance(level.get("effort"), str)
+        }
     unavailable = sorted(configured - available)
     if unavailable:
         return [
@@ -178,6 +213,20 @@ def _codex_models(repo: Path) -> list[Diagnostic]:
                 "error",
                 "codex-models",
                 f"configured Codex models are unavailable: {', '.join(unavailable)}",
+            )
+        ]
+    unsupported_efforts = sorted(
+        f"{model}:{effort}"
+        for model, effort in routed
+        if effort not in supported_efforts.get(model, set())
+    )
+    if unsupported_efforts:
+        return [
+            Diagnostic(
+                "error",
+                "codex-models",
+                "configured Codex reasoning efforts are unavailable: "
+                + ", ".join(unsupported_efforts),
             )
         ]
     return []

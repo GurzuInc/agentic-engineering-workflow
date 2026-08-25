@@ -1,6 +1,6 @@
 [project]
 name = "engineering-policy"
-version = "1.0.0"
+version = "2.1.0"
 description = "Canonical engineering policy renderer and secure consumer synchronizer"
 readme = "README.md"
 requires-python = ">=3.11"

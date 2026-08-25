@@ -1,7 +1,7 @@
 # Agentic Engineering Workflow
 
 Generic engineering-policy and workflow tooling for Git repositories. Version
-1.0 publishes deterministic policy bundles and a self-contained `policyctl.pyz`
+2.1 publishes deterministic policy bundles and a self-contained `policyctl.pyz`
 for repository-scoped Codex and Claude workflows.
 
 Functional source is published through an Emitii-linked pull request after the
@@ -10,7 +10,7 @@ unpublished RC1 provenance boundary.
 
 ## Supported interface
 
-Version 1.0 supports Codex and Claude adapters. Enrollment is intentionally explicit:
+Version 2.1 supports Codex and Claude adapters. Enrollment is intentionally explicit:
 
 ```text
 policyctl init \
@@ -57,8 +57,9 @@ contract, and every schema byte match the reviewed v2 contract. Automatic
 updates remain pinned to the enrolled major, and candidate updater bytes are
 verified and copied without execution.
 
-Version 2.0 is general availability with Codex 0.147.0 validated on macOS and
-Claude live-client validation explicitly pending. The first authenticated Gurzu
+Version 2.1 is general availability with Codex 0.147.0 validated on macOS and
+the fail-closed Sol planner, Luna executor, and parallel Terra xhigh reviewer
+graph validated on Codex; Claude live-client validation explicitly pending. The first authenticated Gurzu
 engineer integrating Claude on macOS or Linux may record the exact client
 version and validation evidence in a later patch; no person is a prerequisite
 for this release. Use `doctor --client codex`, `doctor --client claude`, or

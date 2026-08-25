@@ -18,6 +18,15 @@ from engineering_policy.constants import (
 from engineering_policy.errors import PolicyError
 from engineering_policy.semver import Version
 
+_CODEX_ROUTING_PATH = "spec/codex-model-routing.yaml"
+_CODEX_ROUTING_SNAPSHOT_PATH = "codex-model-routing.yaml"
+_CODEX_ROUTING_MIN_VERSION = (2, 1)
+_CODEX_REVIEWERS = (
+    "project_contract_reviewer",
+    "project_test_reviewer",
+    "project_security_reviewer",
+)
+
 
 def load_yaml_bytes(content: bytes, label: str) -> dict[str, Any]:
     try:
@@ -68,6 +77,11 @@ def validate_policy(
     version = Version.parse(policy["policy_version"])
     if policy["policy_version"] != str(version):
         raise PolicyError("policy version is not canonical")
+    routing_present = _routing_path(files) is not None
+    if routing_present:
+        validate_model_routing(files)
+    elif (version.major, version.minor) >= _CODEX_ROUTING_MIN_VERSION:
+        raise PolicyError("bundle is missing the required Codex model-routing spec")
     canonical_ids = [item["id"] for item in policy["canonical_policies"]]
     if len(canonical_ids) != len(set(canonical_ids)):
         raise PolicyError("canonical policy IDs must be unique")
@@ -154,7 +168,11 @@ def validate_adapters(files: dict[str, bytes]) -> None:
     claude_settings = load_json_bytes(files[claude_settings_path], claude_settings_path)
     if claude_settings != {"$schema": "https://json.schemastore.org/claude-code-settings.json"}:
         raise PolicyError("Claude project settings contain unsupported fields")
-    expected_adapter_files = _expected_adapter_files()
+    routing_present = _routing_path(files) is not None
+    if routing_present:
+        routing = validate_model_routing(files)
+        _validate_codex_execution_contract(files, codex_config, routing)
+    expected_adapter_files = _expected_adapter_files(include_routing=routing_present)
     actual_adapter_files = {name for name in files if name.startswith("adapters/")}
     unexpected = sorted(actual_adapter_files - expected_adapter_files)
     missing = sorted(expected_adapter_files - actual_adapter_files)
@@ -162,6 +180,19 @@ def validate_adapters(files: dict[str, bytes]) -> None:
         raise PolicyError(
             f"adapter file contract mismatch; missing={missing}, unexpected={unexpected}"
         )
+    if routing_present:
+        expected_reviewers = {
+            item["agent"]: (item["model"], item["reasoning_effort"])
+            for item in routing["routes"]["reviewers"]
+        }
+        for agent, (model, effort) in expected_reviewers.items():
+            path = f"adapters/codex/.codex/agents/{agent}.toml"
+            configured = tomllib.loads(files[path].decode())
+            if (configured.get("model"), configured.get("model_reasoning_effort")) != (
+                model,
+                effort,
+            ):
+                raise PolicyError(f"Codex reviewer route does not match its agent contract: {path}")
     for name, content in files.items():
         if name.startswith("adapters/codex/.codex/agents/") and name.endswith(".toml"):
             try:
@@ -192,6 +223,168 @@ def validate_adapters(files: dict[str, bytes]) -> None:
                 raise PolicyError(f"Claude reviewer is not read-only: {name}")
 
 
+def validate_model_routing(files: dict[str, bytes]) -> dict[str, Any]:
+    """Validate the fail-closed Codex planner, executor, and reviewer graph."""
+
+    path = _routing_path(files)
+    if path is None:
+        raise PolicyError(f"bundle is missing the Codex model-routing spec: {_CODEX_ROUTING_PATH}")
+    routing = load_yaml_bytes(files[path], _CODEX_ROUTING_PATH)
+    expected_top_level = {
+        "schema_version",
+        "routing_version",
+        "client",
+        "fail_closed",
+        "max_review_fix_passes",
+        "orchestration",
+        "routes",
+    }
+    if set(routing) != expected_top_level:
+        raise PolicyError("Codex model-routing spec contains unknown or missing fields")
+    if (
+        type(routing["schema_version"]) is not int
+        or routing["schema_version"] != 1
+        or type(routing["routing_version"]) is not int
+        or routing["routing_version"] != 1
+    ):
+        raise PolicyError("Codex model-routing spec version is unsupported")
+    if (
+        not isinstance(routing["client"], str)
+        or routing["client"] != "codex"
+        or routing["fail_closed"] is not True
+    ):
+        raise PolicyError("Codex model-routing spec must be Codex-only and fail closed")
+    if type(routing["max_review_fix_passes"]) is not int or routing["max_review_fix_passes"] != 2:
+        raise PolicyError("Codex model-routing spec must allow exactly two review/fix passes")
+
+    orchestration = routing["orchestration"]
+    if not isinstance(orchestration, dict) or set(orchestration) != {
+        "parent_writes",
+        "planner_complete_before_executor",
+        "review_fanout",
+        "executor_retained_for_fixes",
+        "route_findings_to",
+        "rerun_reviewers_after_fix",
+    }:
+        raise PolicyError("Codex model-routing orchestration contract is invalid")
+    if any(
+        type(orchestration[key]) is not bool
+        for key in (
+            "parent_writes",
+            "planner_complete_before_executor",
+            "executor_retained_for_fixes",
+            "rerun_reviewers_after_fix",
+        )
+    ) or orchestration != {
+        "parent_writes": False,
+        "planner_complete_before_executor": True,
+        "review_fanout": "parallel",
+        "executor_retained_for_fixes": True,
+        "route_findings_to": "executor",
+        "rerun_reviewers_after_fix": True,
+    }:
+        raise PolicyError("Codex model-routing orchestration contract is not fail closed")
+
+    routes = routing["routes"]
+    if not isinstance(routes, dict) or set(routes) != {"planner", "executor", "reviewers"}:
+        raise PolicyError("Codex model-routing routes are invalid")
+    _validate_route(
+        routes["planner"],
+        expected={
+            "agent": "default",
+            "model": "gpt-5.6-sol",
+            "reasoning_effort": "medium",
+            "permission": "read-only",
+            "output": "decision-complete execution packet",
+        },
+        label="planner",
+    )
+    _validate_route(
+        routes["executor"],
+        expected={
+            "agent": "worker",
+            "model": "gpt-5.6-luna",
+            "reasoning_effort": "max",
+            "permission": "writer",
+            "output": "implementation diff, tests, evidence, and residual risks",
+        },
+        label="executor",
+    )
+    reviewers = routes["reviewers"]
+    if not isinstance(reviewers, list) or len(reviewers) != len(_CODEX_REVIEWERS):
+        raise PolicyError("Codex model-routing reviewer fan-out must contain three reviewers")
+    for reviewer, expected_id in zip(reviewers, _CODEX_REVIEWERS, strict=True):
+        _validate_route(
+            reviewer,
+            expected={
+                "id": expected_id,
+                "agent": expected_id,
+                "model": "gpt-5.6-terra",
+                "reasoning_effort": "xhigh",
+                "permission": "read-only",
+                "parallel": True,
+            },
+            label=f"reviewer {expected_id}",
+        )
+    return routing
+
+
+def _validate_codex_execution_contract(
+    files: dict[str, bytes], codex_config: dict[str, Any], routing: dict[str, Any]
+) -> None:
+    adapter_routing_path = "adapters/codex/.codex/model-routing.yaml"
+    if adapter_routing_path not in files:
+        raise PolicyError("Codex adapter is missing its model-routing sentinel")
+    route_content = files[_routing_path(files) or _CODEX_ROUTING_PATH]
+    if files[adapter_routing_path] != route_content:
+        raise PolicyError("Codex adapter model-routing sentinel differs from the routing spec")
+    agents = codex_config["agents"]
+    if agents.get("enabled") is not True or agents.get("max_concurrent_threads_per_session") != 4:
+        raise PolicyError(
+            "Codex project config must enable agents with four concurrent review threads"
+        )
+    skill_path = "adapters/codex/.agents/skills/project-engineering-workflow/SKILL.md"
+    try:
+        skill = files[skill_path].decode("utf-8")
+    except (KeyError, UnicodeDecodeError) as exc:
+        raise PolicyError("Codex workflow skill is missing or not UTF-8") from exc
+    required_fragments = (
+        "model and reasoning-effort mismatches are a hard failure and never fall back to "
+        "another model",
+        "built-in `default` subagent with `gpt-5.6-sol` at `medium` reasoning effort",
+        "in read-only mode",
+        "built-in `worker` subagent with `gpt-5.6-luna` at `max` reasoning effort",
+        "`project_contract_reviewer`, `project_test_reviewer`, and `project_security_reviewer`",
+        "`gpt-5.6-terra` at `xhigh` reasoning effort",
+        "run in parallel",
+        "read-only permissions",
+        "the sole workspace writer",
+        "the parent orchestrator and all reviewers must not edit files",
+        "Allow at most two review/fix passes",
+    )
+    missing = [fragment for fragment in required_fragments if fragment not in skill]
+    if missing:
+        raise PolicyError("Codex workflow skill does not implement the model-routing contract")
+
+
+def _validate_route(value: object, *, expected: dict[str, object], label: str) -> None:
+    if (
+        not isinstance(value, dict)
+        or set(value) != set(expected)
+        or any(type(value[key]) is not type(expected[key]) for key in expected)
+        or value != expected
+    ):
+        raise PolicyError(f"Codex model-routing {label} route is invalid")
+
+
+def _routing_path(files: dict[str, bytes]) -> str | None:
+    if _CODEX_ROUTING_PATH in files:
+        return _CODEX_ROUTING_PATH
+    if _CODEX_ROUTING_SNAPSHOT_PATH in files:
+        return _CODEX_ROUTING_SNAPSHOT_PATH
+    return None
+
+
 def _frontmatter(content: bytes, label: str) -> dict[str, Any]:
     try:
         text = content.decode("utf-8")
@@ -206,7 +399,7 @@ def _frontmatter(content: bytes, label: str) -> dict[str, Any]:
     return value
 
 
-def _expected_adapter_files() -> set[str]:
+def _expected_adapter_files(*, include_routing: bool = False) -> set[str]:
     codex_agents = {
         "project_scope_explorer.toml",
         "project_contract_reviewer.toml",
@@ -219,7 +412,7 @@ def _expected_adapter_files() -> set[str]:
         "project-test-reviewer.md",
         "project-security-reviewer.md",
     }
-    return {
+    expected = {
         "adapters/codex/.codex/config.toml",
         "adapters/codex/.agents/skills/project-engineering-workflow/SKILL.md",
         "adapters/codex/.agents/skills/project-engineering-workflow/agents/openai.yaml",
@@ -228,6 +421,9 @@ def _expected_adapter_files() -> set[str]:
         "adapters/claude/.claude/skills/project-engineering-workflow/SKILL.md",
         *{f"adapters/claude/.claude/agents/{name}" for name in claude_agents},
     }
+    if include_routing:
+        expected.add("adapters/codex/.codex/model-routing.yaml")
+    return expected
 
 
 def validate_overlay(repo: Path, policy: dict[str, Any]) -> dict[str, Any]:
